@@ -14,21 +14,23 @@ AccelStepper EPD(AccelStepper::DRIVER, 41, 40);
 AccelStepper EPU(AccelStepper::DRIVER, 49, 48);
 AccelStepper EYR(AccelStepper::DRIVER, 39, 38);
 AccelStepper EYL(AccelStepper::DRIVER, 53, 52);
-AccelStepper WPU(AccelStepper::DRIVER, 35, 34); //STILL HAVE TO CONNECT THIS
-AccelStepper WPD(AccelStepper::DRIVER, 31, 30); //STILL HAVE TO CONNECT THIS
-AccelStepper RJL(AccelStepper::DRIVER, 45, 44);
-AccelStepper RJR(AccelStepper::DRIVER, 51, 50);
-AccelStepper LJL(AccelStepper::DRIVER, 47, 46);
-AccelStepper LJR(AccelStepper::DRIVER, 55, 56);
+AccelStepper WPU(AccelStepper::DRIVER, 29, 28); //STILL HAVE TO CONNECT THIS
+AccelStepper WPD(AccelStepper::DRIVER, 35, 34); //STILL HAVE TO CONNECT THIS
+AccelStepper LJR(AccelStepper::DRIVER, 45, 44);
+AccelStepper LJL(AccelStepper::DRIVER, 51, 50);
+AccelStepper RJR(AccelStepper::DRIVER, 47, 46);
+AccelStepper RJL(AccelStepper::DRIVER, 43, 42);
 AccelStepper ROLL(AccelStepper::DRIVER, 37, 36);
 
 float ey_pos = 90;  // Initial position in degrees
 float ep_pos = 90;  // Initial position in degrees
 float wp_pos = 90;  // Initial wrist pitch position in degrees
-AccelStepper* motors[] = {&EPD, &EPU, &EYR, &EYL, &WPU, &WPD, &RJL, &RJR, &LJL, &LJR, &ROLL};
+AccelStepper* motors[] = {&EPD, &EPU, &EYR, &EYL, &WPU, &WPD, &LJR, &LJL, &RJR, &RJL, &ROLL};
 
 // Function declarations
 //void moveLink(AccelStepper* m1, AccelStepper* m2, float steps);
+void moveEY(float theta_deg);
+void moveEP(float theta_deg);
 void moveEYTo(float abs_theta);
 void moveEPTo_EZ(float abs_theta);
 float getLongerPathEY(float theta_deg);
@@ -41,6 +43,7 @@ float getShorterPathWP(float theta);
 void detension();
 void testMotors();
 void tensionMotor(AccelStepper* motor);
+void detensionMotor(AccelStepper* motor);
 void moveEPToTest(float abs_theta);
 int getEPSteps(float delta_theta);
 void moveEYToTest(float abs_theta);
@@ -58,17 +61,17 @@ void setup()
   Serial.begin(9600);
   
   // Set speeds for all motors
-  EPD.setMaxSpeed(200.0);
-  EPU.setMaxSpeed(200.0);
-  EYR.setMaxSpeed(100.0);
-  EYL.setMaxSpeed(100.0);
-  WPU.setMaxSpeed(100.0);
-  WPD.setMaxSpeed(100.0);
-  RJL.setMaxSpeed(100.0);
-  RJR.setMaxSpeed(100.0);
-  LJL.setMaxSpeed(100.0);
-  LJR.setMaxSpeed(100.0);
-  ROLL.setMaxSpeed(100.0);
+  EPD.setMaxSpeed(300.0);
+  EPU.setMaxSpeed(300.0);
+  EYR.setMaxSpeed(300.0);
+  EYL.setMaxSpeed(300.0);
+  WPU.setMaxSpeed(300.0);
+  WPD.setMaxSpeed(300.0);
+  RJL.setMaxSpeed(300.0);
+  RJR.setMaxSpeed(300.0);
+  LJL.setMaxSpeed(300.0);
+  LJR.setMaxSpeed(300.0);
+  ROLL.setMaxSpeed(300.0);
 
   // Set acceleration for all motors
   for (int i = 0; i < 11; i++) {
@@ -84,16 +87,7 @@ void setup()
 
 void manualControl() {
   verbose_output = true;
-  // Show current positions
-  Serial.println("\nCurrent joint positions:");
-  Serial.print("Elbow Pitch: ");
-  Serial.print(ep_pos);
-  Serial.println(" degrees");
-  Serial.print("Elbow Yaw: ");
-  Serial.print(ey_pos);
-  Serial.println(" degrees");
-
-  // Prompt for movement type
+  
   Serial.println("\nSelect movement type:");
   Serial.println("1 - Elbow Pitch");
   Serial.println("2 - Elbow Yaw");
@@ -110,8 +104,8 @@ void manualControl() {
   }
   
   // Prompt for target angle
-  Serial.println("\nEnter target angle (0-180 degrees):");
-  
+  Serial.println("\nEnter movement angle. Positive values wind up and to the left, negative values wind down and to the right:");
+  delay(1000);
   // Wait for user input
   while (!Serial.available()) {
     delay(100);
@@ -120,11 +114,11 @@ void manualControl() {
   String input = Serial.readStringUntil('\n');
   float target_theta = input.toFloat();
   
-  if (target_theta >= 0 && target_theta <= 180) {
+  if (target_theta >= -90 && target_theta <= 90) {
     if (choice == '1') {
-      moveEPTo_EZ(target_theta);
+      moveEP(target_theta);
     } else if (choice == '2') {
-      moveEYToTest(target_theta);
+      moveEY(target_theta);
     } else {
       Serial.println("Invalid choice. Please enter 1 or 2.");
     }
@@ -138,6 +132,86 @@ void loop()
   manualControl();
   //detension();
   //elbowTest();
+}
+
+void moveEP(float theta_deg){
+  float K = 1.4; //open loop gain
+  float theta_rad = DEG_TO_RAD(theta_deg);  // Calculate change in angle
+  float delta_s = theta_rad*3.24;
+  int steps = MM_TO_STEPS(delta_s)*K;
+  if (verbose_output){
+    Serial.println("\nMovement values for verification:");
+    Serial.print("Delta theta: ");
+    Serial.println(theta_deg);
+    Serial.print("Steps: ");
+    Serial.println(steps);
+    
+    Serial.println("\nProceed with movement? (y/n)");
+    
+    // Wait for user input
+    while (!Serial.available()) {
+      delay(100);
+    }
+    
+    char input = Serial.read();
+    while (Serial.available()) {
+      Serial.read(); // Clear any additional characters
+    }
+    
+    if (input != 'y' && input != 'Y') {
+      Serial.println("Movement cancelled.");
+      return;
+    }
+  }
+  
+  EPU.move(steps);
+  EPD.move(-steps);
+
+  // Run motors until movement is complete
+  while((EPU.isRunning() || EPD.isRunning())){
+    EPU.run();
+    EPD.run();
+  }
+}
+
+void moveEY(float theta_deg){
+  float K = 1.4; //open loop gain
+  float theta_rad = DEG_TO_RAD(theta_deg);  // Calculate change in angle
+  float delta_s = theta_rad*3.1;
+  int steps = MM_TO_STEPS(delta_s)*K;
+  if (verbose_output){
+    Serial.println("\nMovement values for verification:");
+    Serial.print("Delta theta: ");
+    Serial.println(theta_deg);
+    Serial.print("Steps: ");
+    Serial.println(steps);
+    
+    Serial.println("\nProceed with movement? (y/n)");
+    
+    // Wait for user input
+    while (!Serial.available()) {
+      delay(100);
+    }
+    
+    char input = Serial.read();
+    while (Serial.available()) {
+      Serial.read(); // Clear any additional characters
+    }
+    
+    if (input != 'y' && input != 'Y') {
+      Serial.println("Movement cancelled.");
+      return;
+    }
+  }
+  
+  EYR.move(steps);
+  EYL.move(-steps);
+
+  // Run motors until movement is complete
+  while((EYR.isRunning() || EYL.isRunning())){
+    EYR.run();
+    EYL.run();
+  }
 }
 
 void elbowTest() {
@@ -299,10 +373,6 @@ void moveEYTo(float abs_theta){
   Serial.println(delta_jaw_right, 3);
   Serial.print("Delta jaw left (mm): ");
   Serial.println(delta_jaw_left, 3);
-  Serial.print("Jaw right steps: ");
-  Serial.println(jaw_right_steps);
-  Serial.print("Jaw left steps: ");
-  Serial.println(jaw_left_steps);
   Serial.print("Elbow yaw steps: ");
   Serial.println(ey_steps);
   
@@ -584,6 +654,29 @@ void detension() {
 }
 
 void tensionMotor(AccelStepper* motor) {
+  Serial.println("Select tension mode:");
+  Serial.println("f - Fine tension (50 speed)");
+  Serial.println("c - Coarse tension (600 speed)");
+  
+  // Wait for user input
+  while (!Serial.available()) {
+    delay(100);
+  }
+  
+  char mode = Serial.read();
+  while (Serial.available()) {
+    Serial.read(); // Clear any additional characters
+  }
+  
+  float tensionSpeed;
+  if (mode == 'c' || mode == 'C') {
+    tensionSpeed = 600.0;
+    Serial.println("Coarse tensioning selected");
+  } else {
+    tensionSpeed = 50.0;
+    Serial.println("Fine tensioning selected");
+  }
+  
   Serial.println("Tensioning motor... Press any key to stop");
   
   // Save current settings
@@ -591,9 +684,9 @@ void tensionMotor(AccelStepper* motor) {
   float currentAccel = motor->acceleration();
   
   // Set up for tensioning
-  motor->setMaxSpeed(50.0);
+  motor->setMaxSpeed(tensionSpeed);
   motor->setAcceleration(1000000.0);  // Effectively no ramping
-  motor->setSpeed(50.0);
+  motor->setSpeed(tensionSpeed);
   
   while (!Serial.available()) {
     motor->runSpeed();  // Run motor at constant speed
@@ -609,6 +702,34 @@ void tensionMotor(AccelStepper* motor) {
   motor->setAcceleration(currentAccel);
   motor->setSpeed(0);  // Stop the motor
   Serial.println("Tensioning stopped");
+}
+
+void detensionMotor(AccelStepper* motor) {
+  Serial.println("Detensioning motor... Press any key to stop");
+  
+  // Save current settings
+  float currentMaxSpeed = motor->maxSpeed();
+  float currentAccel = motor->acceleration();
+  
+  // Set up for detensioning (opposite direction of tensioning)
+  motor->setMaxSpeed(600.0);
+  motor->setAcceleration(1000000.0);  // Effectively no ramping
+  motor->setSpeed(-600.0);  // Negative speed for opposite direction
+  
+  while (!Serial.available()) {
+    motor->runSpeed();  // Run motor at constant speed
+  }
+  
+  // Clear the serial buffer
+  while (Serial.available()) {
+    Serial.read();
+  }
+  
+  // Restore original settings
+  motor->setMaxSpeed(currentMaxSpeed);
+  motor->setAcceleration(currentAccel);
+  motor->setSpeed(0);  // Stop the motor
+  Serial.println("Detensioning stopped");
 }
 
 void testMotors() {
@@ -632,8 +753,7 @@ void testMotors() {
       return;
     }
     
-    const char* motorNames[] = {"EPD", "EPU", "EYR", "EYL", "WPU", "WPD", "RJL", "RJR", "LJL", "LJR", "ROLL"};
-    AccelStepper* testMotors[] = {&EPD, &EPU, &EYR, &EYL, &WPU, &WPD, &RJL, &RJR, &LJL, &LJR, &ROLL};
+    const char* motorNames[] = {"EPD", "EPU", "EYR", "EYL", "WPU", "WPD", "LJR", "LJL", "RJR", "RJL", "ROLL"};
     
     for (int i = 0; i < 11; i++) {
       bool motorTested = false;
@@ -644,15 +764,16 @@ void testMotors() {
         Serial.println("Moving 5 steps clockwise...");
         
         // Move motor 5 steps clockwise
-        testMotors[i]->move(5);
-        while (testMotors[i]->distanceToGo() != 0) {
-          testMotors[i]->run();
+        motors[i]->move(5);
+        while (motors[i]->distanceToGo() != 0) {
+          motors[i]->run();
         }
         
         Serial.println("Options:");
         Serial.println("y - Motor moved successfully, proceed to next");
         Serial.println("n - Retest this motor");
-        Serial.println("t - Tension this motor");
+        Serial.println("t - Tension this motor (fine/coarse)");
+        Serial.println("d - Detension this motor");
         Serial.println("e - Escape test sequence");
         
         // Wait for user input
@@ -672,9 +793,39 @@ void testMotors() {
           Serial.println("Retesting motor in 1 second...");
           delay(1000);
         } else if (motorInput == 't' || motorInput == 'T') {
-          tensionMotor(testMotors[i]);
-          Serial.println("Proceeding to next motor...");
-          motorTested = true;  // Skip retest after tensioning
+          tensionMotor(motors[i]);
+          Serial.println("Proceed to next motor? (y/n)");
+          while (!Serial.available()) {
+            delay(100);
+          }
+          char proceedInput = Serial.read();
+          while (Serial.available()) {
+            Serial.read(); // Clear any additional characters
+          }
+          if (proceedInput == 'y' || proceedInput == 'Y') {
+            Serial.println("Proceeding to next motor...");
+            motorTested = true;
+          } else {
+            Serial.println("Retesting current motor...");
+            delay(1000);
+          }
+        } else if (motorInput == 'd' || motorInput == 'D') {
+          detensionMotor(motors[i]);
+          Serial.println("Proceed to next motor? (y/n)");
+          while (!Serial.available()) {
+            delay(100);
+          }
+          char proceedInput = Serial.read();
+          while (Serial.available()) {
+            Serial.read(); // Clear any additional characters
+          }
+          if (proceedInput == 'y' || proceedInput == 'Y') {
+            Serial.println("Proceeding to next motor...");
+            motorTested = true;
+          } else {
+            Serial.println("Retesting current motor...");
+            delay(1000);
+          }
         } else if (motorInput == 'e' || motorInput == 'E') {
           Serial.println("Test sequence aborted.");
           return;
@@ -732,8 +883,7 @@ void moveEPTo_EZ(float abs_theta){
   float delta_theta_rad = DEG_TO_RAD(ep_pos-abs_theta);  // Calculate change in angle
   float delta_s = delta_theta_rad*3.24;
   int steps = MM_TO_STEPS(delta_s)*K;
-  //set the EPU and EPD motors
-   if (verbose_output){
+  if (verbose_output){
     Serial.println("\nMovement values for verification:");
     Serial.print("Initial theta: ");
     Serial.println(ep_pos);
