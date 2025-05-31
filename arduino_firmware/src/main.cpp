@@ -4,134 +4,268 @@
 
 bool verbose_output = true;
 
-//motor 1 --> elbow pitch down, pins 41, 40
-//motor 2 --> elbow pitch up, pins 49, 48
-//motor 3 --> elbow yaw right, pins 39, 38
-//motor 4 --> elbow yaw left, pins 53, 54
-
-
-AccelStepper EPD(AccelStepper::DRIVER, 41, 40);
-AccelStepper EPU(AccelStepper::DRIVER, 49, 48);
-AccelStepper EYR(AccelStepper::DRIVER, 39, 38);
-AccelStepper EYL(AccelStepper::DRIVER, 53, 52);
-AccelStepper WPU(AccelStepper::DRIVER, 29, 28); //STILL HAVE TO CONNECT THIS
-AccelStepper WPD(AccelStepper::DRIVER, 35, 34); //STILL HAVE TO CONNECT THIS
-AccelStepper LJR(AccelStepper::DRIVER, 45, 44);
-AccelStepper LJL(AccelStepper::DRIVER, 51, 50);
-AccelStepper RJR(AccelStepper::DRIVER, 47, 46);
-AccelStepper RJL(AccelStepper::DRIVER, 43, 42);
+AccelStepper EPU(AccelStepper::DRIVER, 41, 40);
+AccelStepper EPD(AccelStepper::DRIVER, 49, 48);
+AccelStepper EYL(AccelStepper::DRIVER, 39, 38); 
+AccelStepper EYR(AccelStepper::DRIVER, 53, 52);
+AccelStepper WPD(AccelStepper::DRIVER, 29, 28); 
+AccelStepper WPU(AccelStepper::DRIVER, 35, 34); 
+AccelStepper RJL(AccelStepper::DRIVER, 47, 46);
+AccelStepper LJR(AccelStepper::DRIVER, 51, 50);
+AccelStepper LJL(AccelStepper::DRIVER, 45, 44);
+AccelStepper RJR(AccelStepper::DRIVER, 43, 42);
 AccelStepper ROLL(AccelStepper::DRIVER, 37, 36);
 
 float ey_pos = 90;  // Initial position in degrees
 float ep_pos = 90;  // Initial position in degrees
 float wp_pos = 90;  // Initial wrist pitch position in degrees
-AccelStepper* motors[] = {&EPD, &EPU, &EYR, &EYL, &WPU, &WPD, &LJR, &LJL, &RJR, &RJL, &ROLL};
+
+//THIS IS THE ORDER THAT THE MOTORS ARE ALWAYS REFERRED TO IN
+//IT IS [Q1- Q1+ Q2- Q2+ Q3+ Q3- Q4+ Q4- Q5+ Q5- ROLL]
+AccelStepper* motors[] = {&EPU, &EPD, &EYR, &EYL, &WPD, &WPU, &RJL, &LJR, &LJL, &RJR, &ROLL};
 
 // Function declarations
 //void moveLink(AccelStepper* m1, AccelStepper* m2, float steps);
 void moveEY(float theta_deg);
 void moveEP(float theta_deg);
-void moveEYTo(float abs_theta);
-void moveEPTo_EZ(float abs_theta);
-float getLongerPathEY(float theta_deg);
-float getShorterPathEY(float theta_deg);
+void moveLJ(float theta_deg);
+void moveRJ(float theta_deg);
+float getEYAuxSteps(float theta_deg);
 int getEYSteps(float delta_theta);
-void moveWPTo(float abs_theta);
-float getWPSteps(float delta_theta);
-float getLongerPathWP(float theta);
-float getShorterPathWP(float theta);
-void detension();
-void testMotors();
-void tensionMotor(AccelStepper* motor);
+void moveWP(float delta_theta);
+int getWPSteps(float delta_theta);
+int getJSteps(float delta_theta);
+void tensionMotor(AccelStepper* motor, bool coarse);
 void detensionMotor(AccelStepper* motor);
-void moveEPToTest(float abs_theta);
 int getEPSteps(float delta_theta);
-void moveEYToTest(float abs_theta);
 void getEYLength(float theta_deg, float& shorter, float& longer);
 void getEPLength(float theta_deg, float& shorter, float& longer);
-void manualControl();
-void elbowTest();
 unsigned long startTime;
 unsigned long endTime;
+void moveEPandEY(float pitch_delta, float yaw_delta);
+
 
 //MOVING MOTORS ON LEAD SCREW CLOCKWISE (+VE STEPS) RESULTS IN CABLE LENGTH SHORTENING
 //MOVING MOTORS ON LEAD SCREW COUNTERCLOCKWISE (-VE STEPS) RESULTS IN CABLE LENGTH LENGTHENING
+
+
 void setup()
 {  
   Serial.begin(9600);
-  
-  // Set speeds for all motors
-  EPD.setMaxSpeed(300.0);
-  EPU.setMaxSpeed(300.0);
-  EYR.setMaxSpeed(300.0);
-  EYL.setMaxSpeed(300.0);
-  WPU.setMaxSpeed(300.0);
-  WPD.setMaxSpeed(300.0);
-  RJL.setMaxSpeed(300.0);
-  RJR.setMaxSpeed(300.0);
-  LJL.setMaxSpeed(300.0);
-  LJR.setMaxSpeed(300.0);
-  ROLL.setMaxSpeed(300.0);
 
   // Set acceleration for all motors
   for (int i = 0; i < 11; i++) {
     motors[i]->setAcceleration(1000000.0);  // Effectively no ramping
     motors[i]->setCurrentPosition(0);
+    motors[i]->setMaxSpeed(700);
   }
-  
-  //detension();
-  Serial.println("Starting motor test sequence...");
-  testMotors();
-  Serial.println("Motor testing complete. Beginning normal operation...");
 }
 
-void manualControl() {
-  verbose_output = true;
-  
-  Serial.println("\nSelect movement type:");
-  Serial.println("1 - Elbow Pitch");
-  Serial.println("2 - Elbow Yaw");
-  Serial.println("Enter choice (1 or 2):");
-  
-  // Wait for user input
-  while (!Serial.available()) {
-    delay(100);
-  }
-  
-  char choice = Serial.read();
-  while (Serial.available()) {
-    Serial.read(); // Clear any additional characters
-  }
-  
-  // Prompt for target angle
-  Serial.println("\nEnter movement angle. Positive values wind up and to the left, negative values wind down and to the right:");
-  delay(1000);
-  // Wait for user input
-  while (!Serial.available()) {
-    delay(100);
-  }
-  
-  String input = Serial.readStringUntil('\n');
-  float target_theta = input.toFloat();
-  
-  if (target_theta >= -90 && target_theta <= 90) {
-    if (choice == '1') {
-      moveEP(target_theta);
-    } else if (choice == '2') {
-      moveEY(target_theta);
-    } else {
-      Serial.println("Invalid choice. Please enter 1 or 2.");
+// --- Test Motor State ---
+bool test_mode_active = false;
+int test_motor_index = 0;
+const int NUM_TEST_MOTORS = 10;
+const char* test_motor_names[NUM_TEST_MOTORS] = {"RJL", "RJR", "LJL", "LJR", "WPU", "WPD", "EYR", "EYL", "EPD", "EPU"};
+AccelStepper* test_motors[NUM_TEST_MOTORS] = {&RJL, &RJR, &LJL, &LJR, &WPU, &WPD, &EYR, &EYL, &EPD, &EPU};
+
+int handleTestMotorCommand(const String& command) {
+  if (command == "START_TEST_MOTORS") {
+    test_mode_active = true;
+    test_motor_index = 9; 
+    Serial.print("TEST_MOTOR_SELECTED:");
+    Serial.println(test_motor_names[test_motor_index]);
+  } else if (command.startsWith("SELECT_MOTOR:")) {
+    String name = command.substring(13);
+    for (int i = 0; i < NUM_TEST_MOTORS; i++) {
+      if (name == test_motor_names[i]) {
+        test_motor_index = i;
+        Serial.print("TEST_MOTOR_SELECTED:");
+        Serial.println(test_motor_names[test_motor_index]);
+        break;
+      }
     }
-  } else {
-    Serial.println("Invalid angle. Please enter a value between 0 and 180 degrees.");
+  } else if (command == "NEXT_MOTOR") {
+    test_motor_index = (test_motor_index + 1) % NUM_TEST_MOTORS;
+    Serial.print("TEST_MOTOR_SELECTED:");
+    Serial.println(test_motor_names[test_motor_index]);
+  } else if (command == "TEST_MOTOR_STEP") {
+    // Move 5 steps clockwise
+    test_motors[test_motor_index]->move(5);
+    while (test_motors[test_motor_index]->distanceToGo() != 0) {
+      test_motors[test_motor_index]->run();
+    }
+    Serial.println("TEST_MOTOR_STEP_DONE");
+  } else if (command == "FINE_TENSION") {
+    // Fine tension: move a small number of steps
+    tensionMotor(test_motors[test_motor_index], false);
+    Serial.println("FINE_TENSION_DONE");
+  } else if (command == "COARSE_TENSION") {
+    // Coarse tension: move a larger number of steps
+    tensionMotor(test_motors[test_motor_index], true);
+    Serial.println("COARSE_TENSION_DONE");
+  } else if (command == "DETENSION") {
+    detensionMotor(test_motors[test_motor_index]);
+    Serial.println("DETENSION_DONE");
+  } else if (command.startsWith("STEP_MOTOR_BY")){
+    String stepsStr = command.substring(14); // Length of "STEP_MOTOR_BY:"
+    long steps = stepsStr.toInt(); // Use long for steps, can be negative
+    Serial.print("STEPPING BY");
+    Serial.println(steps);
+    test_motors[test_motor_index]->move(steps);
+    while (test_motors[test_motor_index]->distanceToGo() != 0) {
+        test_motors[test_motor_index]->run();
+    }
+    Serial.println("STEP_MOTOR_BY_DONE");
   }
+  else if (command == "SET_HOME"){
+    //set all the motors current position to be 0 
+    for (int i = 0; i < NUM_TEST_MOTORS; i++) {
+      test_motors[i]->setCurrentPosition(0);
+    }
+  }
+  else if (command == "EXIT_TEST") {
+    test_mode_active = false;
+    Serial.println("TEST_MOTORS_EXITED");
+  }
+  else {
+    return 0;
+  }
+  return 1;
+}
+
+void handleMoveAllMotors(String cmd){
+  int NUM_MOTORS = 11;
+  long parsedMotorSteps[NUM_MOTORS];
+  cmd.trim(); // Remove any leading/trailing whitespace (like \r)
+  Serial.print("Received: [");
+  Serial.print(cmd);
+  Serial.println("]");
+
+  if (cmd.startsWith("MOVE_ALL_MOTORS:")) {
+    // Extract the part of the string after "MOVE_ALL_MOTORS:"
+    String stepsData = cmd.substring(cmd.indexOf(':') + 1);
+
+    // Prepare for parsing using strtok_r (reentrant version of strtok)
+    char dataBuffer[stepsData.length() + 1];
+    stepsData.toCharArray(dataBuffer, sizeof(dataBuffer));
+
+    char* token;
+    char* context = NULL; // Context pointer for strtok_r
+    int motorIndex = 0;
+
+    // Get the first token
+    token = strtok_r(dataBuffer, ",", &context);
+
+    while (token != NULL && motorIndex < NUM_MOTORS) {
+      parsedMotorSteps[motorIndex] = atol(token); // Convert string token to long integer
+      motorIndex++;
+      token = strtok_r(NULL, ",", &context); // Get the next token
+    }
+
+    // Check if we successfully parsed all expected values
+    if (motorIndex == NUM_MOTORS) {
+      Serial.println("Successfully parsed steps for all motors:");
+      String motorNames[] = {"EPU", "EPD", "EYR", "EYL", "WPD", "WPU", "RJL", "LJR", "LJL", "RJR", "ROLL"};
+      for (int i = 0; i < NUM_MOTORS; i++) {
+        Serial.print("  Motor ");
+        Serial.print(i < 11 ? motorNames[i] : "Unknown"); // Print name if available
+        Serial.print(": ");
+        Serial.println(parsedMotorSteps[i]);
+
+        // --- Command the motor to move ---
+        motors[i]->move(parsedMotorSteps[i]); // Tell motor to move by this many steps (relative)
+        // If you wanted to move to an absolute position:
+      }
+      bool stillMoving = true;
+      while(stillMoving){
+        stillMoving = false;
+        for (int i = 0; i < NUM_MOTORS; i++) {
+          motors[i]->run(); // THIS IS CRUCIAL - it generates the steps
+          if (motors[i]->isRunning()) {
+            stillMoving = true; // At least one motor is still moving
+          }
+        }
+      }
+      Serial.println("Motor movement commands applied.");
+    } else {
+      Serial.print("Error: Failed to parse all motor steps. Parsed ");
+      Serial.print(motorIndex);
+      Serial.print(" values, expected ");
+      Serial.println(NUM_MOTORS);
+    }
+  } else if (cmd.length() > 0) { // Handle other potential commands or unrecognized input
+    Serial.print("Unknown command: ");
+    Serial.println(cmd);
+  }
+
 }
 
 void loop()
 {
-  manualControl();
-  //detension();
-  //elbowTest();
+  if (Serial.available() > 0) {
+    String command = Serial.readStringUntil('\n');
+    command.trim();
+    
+    if (test_mode_active || command == "START_TEST_MOTORS") {
+      if(handleTestMotorCommand(command) == 1){
+        return;
+      }
+    }
+    if (command.startsWith("MOVE_EP_EY_REL:")) {
+      int commaIdx = command.indexOf(",", 15);
+      if (commaIdx > 0) {
+        float pitch_delta = command.substring(15, commaIdx).toFloat();
+        float yaw_delta = command.substring(commaIdx + 1).toFloat();
+        moveEPandEY(pitch_delta, yaw_delta);
+        Serial.println("OK");
+      } else {
+        Serial.println("ERROR: Invalid MOVE_EP_EY_REL format");
+      }
+      return;
+    }
+    if (command.startsWith("MOVE_EP_REL:")) {
+      float angle = command.substring(12).toFloat();
+      moveEP(angle);
+      Serial.println("OK");
+    }
+    else if (command.startsWith("MOVE_EY_REL:")) {
+      float angle = command.substring(12).toFloat();
+      moveEY(angle);
+      Serial.println("OK");
+    }
+    else if (command.startsWith("MOVE_WP_REL:")) { // <<< IMPLEMENTED THIS
+      float angle = command.substring(12).toFloat();
+      moveWP(angle); // You need to define moveWP(float angle)
+      Serial.println("OK");
+      return;
+    }
+    else if (command.startsWith("MOVE_LJ_REL:")) { // <<< IMPLEMENTED THIS
+      float angle = command.substring(12).toFloat();
+      moveLJ(angle); // You need to define moveLJ(float angle)
+      Serial.println("OK");
+      return;
+    }
+    else if (command.startsWith("MOVE_RJ_REL:")) { // <<< IMPLEMENTED THIS
+      float angle = command.substring(12).toFloat();
+      moveRJ(angle); 
+      Serial.println("OK");
+      return;
+    }
+    else if (command == "SET_VERBOSE:1") {
+      verbose_output = true;
+      Serial.println("OK");
+    }
+    else if (command == "SET_VERBOSE:0") {
+      verbose_output = false;
+      Serial.println("OK");
+    }
+    else if (command.startsWith("MOVE_ALL_MOTORS:")){
+      handleMoveAllMotors(command);
+    }
+    else {
+      Serial.println("ERROR: Unknown command");
+    }
+  }
 }
 
 void moveEP(float theta_deg){
@@ -139,29 +273,13 @@ void moveEP(float theta_deg){
   float theta_rad = DEG_TO_RAD(theta_deg);  // Calculate change in angle
   float delta_s = theta_rad*3.24;
   int steps = MM_TO_STEPS(delta_s)*K;
+  
   if (verbose_output){
     Serial.println("\nMovement values for verification:");
     Serial.print("Delta theta: ");
     Serial.println(theta_deg);
     Serial.print("Steps: ");
     Serial.println(steps);
-    
-    Serial.println("\nProceed with movement? (y/n)");
-    
-    // Wait for user input
-    while (!Serial.available()) {
-      delay(100);
-    }
-    
-    char input = Serial.read();
-    while (Serial.available()) {
-      Serial.read(); // Clear any additional characters
-    }
-    
-    if (input != 'y' && input != 'Y') {
-      Serial.println("Movement cancelled.");
-      return;
-    }
   }
   
   EPU.move(steps);
@@ -172,359 +290,64 @@ void moveEP(float theta_deg){
     EPU.run();
     EPD.run();
   }
+  
+  ep_pos += theta_deg;  // Update the stored position
 }
 
 void moveEY(float theta_deg){
+
+  //yaw left --> lengthen jaw right cables, shorten jaw left cables
+  //yaw right --> lengthen jaw left cables, shorten jaw right cables
   float K = 1.4; //open loop gain
   float theta_rad = DEG_TO_RAD(theta_deg);  // Calculate change in angle
   float delta_s = theta_rad*3.1;
   int steps = MM_TO_STEPS(delta_s)*K;
+  int aux_steps = getEYAuxSteps(theta_deg);
+  
   if (verbose_output){
     Serial.println("\nMovement values for verification:");
     Serial.print("Delta theta: ");
     Serial.println(theta_deg);
     Serial.print("Steps: ");
     Serial.println(steps);
+
+    Serial.print("Aux steps ");
+    Serial.println(aux_steps);
     
-    Serial.println("\nProceed with movement? (y/n)");
-    
-    // Wait for user input
-    while (!Serial.available()) {
-      delay(100);
-    }
-    
-    char input = Serial.read();
-    while (Serial.available()) {
-      Serial.read(); // Clear any additional characters
-    }
-    
-    if (input != 'y' && input != 'Y') {
-      Serial.println("Movement cancelled.");
-      return;
-    }
+    delay(1500);
   }
   
   EYR.move(steps);
   EYL.move(-steps);
+  LJR.move(aux_steps);
+  RJR.move(aux_steps);
+  LJL.move(-aux_steps);
+  LJR.move(-aux_steps);
 
   // Run motors until movement is complete
   while((EYR.isRunning() || EYL.isRunning())){
     EYR.run();
     EYL.run();
-  }
-}
-
-void elbowTest() {
-  unsigned long startTime;
-  unsigned long endTime;
-  verbose_output = false;
-
-  Serial.println("Start test?");
-  while (!Serial.available()) {
-    delay(100);
-  }
-  Serial.read(); // Clear the input character
-  
-  Serial.println("Enter elbow test mode");
-  Serial.println("Begin Aurora Recording in 3 seconds...");
-  Serial.print("3...");
-  delay(1000);
-  Serial.print("2...");
-  delay(1000);
-  Serial.println("1...");
-  delay(1000);
-  Serial.println("Recording...");
-  startTime = millis();
-
-  // Initial position is 90, log it.
-  // moveEPToTest(90); // Call if you need to ensure it's actively set, even if assumed.
-  Serial.print("90, ");
-  Serial.println(millis() - startTime);
-  // If moveEPToTest(90) was called above, you might add a small delay here
-  // if the function returns before movement is complete.
-  // delay(100); // Example small delay
-
-  // Upward step sequence: 90-100-90, 90-110-90, ..., 90-140-90
-  int upwardSteps[] = {100, 110, 120, 130, 140};
-  for (int i = 0; i < 5; i++) { // Loop 5 times for the 5 target angles
-    // Move to target angle
-    moveEPToTest(upwardSteps[i]);
-    Serial.print(upwardSteps[i]);
-    Serial.print(", ");
-    Serial.println(millis() - startTime);
-    delay(1000); // Optional delay after reaching target
-
-    // Move back to 90
-    moveEPToTest(90);
-    Serial.print("90, ");
-    Serial.println(millis() - startTime);
-    delay(1000); // Optional delay after returning to base
-  }
-
-  // Downward step sequence: 90-80-90, 90-70-90, ..., 90-40-90
-  // (Assuming a similar pattern and range downwards from 90)
-  int downwardSteps[] = {80, 70, 60, 50, 40}; // Adjust if your downward range is different
-  for (int i = 0; i < 5; i++) { // Loop 5 times for the 5 target angles
-    // Move to target angle
-    moveEPToTest(downwardSteps[i]);
-    Serial.print(downwardSteps[i]);
-    Serial.print(", ");
-    Serial.println(millis() - startTime);
-    delay(1000); // Optional delay after reaching target
-
-    // Move back to 90
-    moveEPToTest(90);
-    Serial.print("90, ");
-    Serial.println(millis() - startTime);
-    delay(1000); // Optional delay after returning to base
-  }
-
-  endTime = millis();
-  // Serial.println("stop"); // Optional: can be sent to your recording software
-  Serial.flush();
-  Serial.print("Time taken: ");
-  Serial.println(endTime - startTime);
-}
-
-/*void elbowTest(){
-  Serial.println("Start test?");
-  while (!Serial.available()) {
-    delay(100);
-  }
-  Serial.read(); // Clear the input character
-  
-  Serial.println("Enter elbow test mode");
-  Serial.println("Begin Aurora Recording in 3 seconds...");
-  Serial.print("3...");
-  delay(1000);
-  Serial.print("2...");
-  delay(1000);
-  Serial.println("1...");
-  delay(1000);
-  Serial.println("Recording...");
-  
-  // Wait for any character input
-
-  // Move through test sequence
-  startTime = millis();
-  Serial.print("90, ");
-  Serial.println(millis()-startTime);
-  for(int j=0; j<10; j++){
-    for (int i = 0; i < 25; i++){
-      moveEPToTest(90+i);
-      Serial.print(90+i);
-      Serial.print(", ");
-      Serial.println(millis()-startTime);
-    }
-    for (int i = 0; i<25 ; i++){
-      moveEPToTest(115-i);
-      Serial.print(115-i);
-      Serial.print(", ");
-      Serial.println(millis()-startTime);
-    }
-  }
-  endTime= millis();
-  Serial.println("stop");
-  Serial.flush();
-  Serial.print("Time taken: ");
-  Serial.println(endTime-startTime);
-}*/
-
-void moveEYTo(float abs_theta){
-
-  float curr_jaw_right_PL, curr_jaw_left_PL;
-  float dest_jaw_right_PL, dest_jaw_left_PL;
-
-  float delta_theta = ey_pos-abs_theta;  // Calculate change in angle
-  float ey_steps = getEYSteps(delta_theta);
-  
-  if(ey_pos<90){
-    curr_jaw_right_PL = getLongerPathEY(ey_pos);
-    curr_jaw_left_PL = getShorterPathEY(ey_pos);
-  }
-  else{
-    curr_jaw_right_PL = getShorterPathEY(ey_pos);
-    curr_jaw_left_PL =  getLongerPathEY(ey_pos); 
-  }
-
-  if(abs_theta<90){
-    dest_jaw_right_PL = getLongerPathEY(abs_theta);
-    dest_jaw_left_PL = getShorterPathEY(abs_theta);
-  }
-  else{
-    dest_jaw_right_PL = getShorterPathEY(abs_theta);
-    dest_jaw_left_PL =  getLongerPathEY(abs_theta); 
-  }
-
-  float delta_jaw_right = curr_jaw_right_PL-dest_jaw_right_PL;
-  int jaw_right_steps = MM_TO_STEPS(delta_jaw_right);
-  float delta_jaw_left = curr_jaw_left_PL-dest_jaw_left_PL;
-  int jaw_left_steps = MM_TO_STEPS(delta_jaw_left);
-
-  // Print essential movement values
-  Serial.println("\nMovement values for verification:");
-  Serial.print("Initial theta: ");
-  Serial.println(ey_pos);
-  Serial.print("Final theta: ");
-  Serial.println(abs_theta);
-  Serial.print("Delta theta: ");
-  Serial.println(delta_theta);
-  Serial.print("Delta jaw right (mm): ");
-  Serial.println(delta_jaw_right, 3);
-  Serial.print("Delta jaw left (mm): ");
-  Serial.println(delta_jaw_left, 3);
-  Serial.print("Elbow yaw steps: ");
-  Serial.println(ey_steps);
-  
-  Serial.println("\nProceed with movement? (y/n)");
-  
-  // Wait for user input
-  while (!Serial.available()) {
-    delay(100);
-  }
-  
-  char input = Serial.read();
-  while (Serial.available()) {
-    Serial.read(); // Clear any additional characters
-  }
-  
-  if (input != 'y' && input != 'Y') {
-    Serial.println("Movement cancelled.");
-    return;
-  }
-
-  RJR.move(jaw_right_steps);
-  LJR.move(jaw_right_steps);
-  RJL.move(jaw_left_steps);
-  LJL.move(jaw_left_steps);
-  EYR.move(ey_steps);
-  EYL.move(ey_steps);
-
-  // All cables will now move at the same physical speed
-  while((RJR.isRunning() || LJR.isRunning() || RJL.isRunning() || LJL.isRunning() || EYR.isRunning() || EYL.isRunning())){
-    RJR.run();
     LJR.run();
-    RJL.run();
+    RJR.run();
     LJL.run();
-    EYR.run();
-    EYL.run();
+    LJR.run();
   }
-
-  ey_pos = abs_theta;  // Update the stored position after movement is complete
+  
+  ey_pos += theta_deg;  // Update the stored position
 }
 
-void moveEYToTest(float abs_theta){
-
-
-  float delta_theta = ey_pos-abs_theta;  // Calculate change in angle
-
-  float shorter_initial, longer_initial;
-  getEYLength(ey_pos, shorter_initial, longer_initial);
-  
-  float yaw_right_initial, yaw_left_initial;
-  if (ey_pos<90){
-    yaw_right_initial = shorter_initial;
-    yaw_left_initial = longer_initial;
-  }
-  else{
-    yaw_right_initial = longer_initial;
-    yaw_left_initial = shorter_initial;
-  }
-
-  float shorter_final, longer_final;
-  getEYLength(abs_theta, shorter_final, longer_final);
-  
-  float yaw_right_final, yaw_left_final;
-  if (abs_theta<90){
-    yaw_right_final = shorter_final;
-    yaw_left_final = longer_final;
-  }
-  else{
-    yaw_right_final = longer_final;
-    yaw_left_final = shorter_final;
-  }
-
-  float delta_yaw_right_pl = yaw_right_initial - yaw_right_final;
-  float delta_yaw_left_pl = yaw_left_initial - yaw_left_final;
-
-  float yaw_right_steps = MM_TO_STEPS(delta_yaw_right_pl);
-  float yaw_left_steps = MM_TO_STEPS(delta_yaw_left_pl);
-
-  if(verbose_output){
-    // Print essential movement values
-    Serial.println("\nMovement values for verification:");
-    Serial.print("Initial theta: ");
-    Serial.println(ey_pos);
-    Serial.print("Final theta: ");
-    Serial.println(abs_theta);
-    Serial.print("Delta theta: ");
-    Serial.println(delta_theta);
-    Serial.print("Elbow yaw right steps: ");
-    Serial.println(yaw_right_steps);
-    Serial.print("Elbow yaw left steps: ");
-    Serial.println(yaw_left_steps);
-    
-    Serial.println("\nProceed with movement? (y/n)");
-    
-    // Wait for user input
-    while (!Serial.available()) {
-      delay(100);
-    }
-    
-    char input = Serial.read();
-    while (Serial.available()) {
-      Serial.read(); // Clear any additional characters
-    }
-    
-    if (input != 'y' && input != 'Y') {
-      Serial.println("Movement cancelled.");
-      return;
-    }
-  }
-
-  // Calculate the ratio of steps to determine speed scaling
-  float max_steps = max(abs(yaw_right_steps), abs(yaw_left_steps));
-  float speed_ratio_right = abs(yaw_right_steps) / max_steps;
-  float speed_ratio_left = abs(yaw_left_steps) / max_steps;
-
-  // Set speeds proportionally to the step counts
-  EYR.setMaxSpeed(100.0 * speed_ratio_right);
-  EYL.setMaxSpeed(100.0 * speed_ratio_left);
-
-  //set the EYR and EYL motors
-  EYR.move(yaw_right_steps);
-  EYL.move(yaw_left_steps);
-
-  // Run motors until movement is complete
-  while((EYR.isRunning() || EYL.isRunning())){
-    EYR.run();
-    EYL.run();
-  }
-
-  // Reset speeds to default
-  EYR.setMaxSpeed(100.0);
-  EYL.setMaxSpeed(100.0);
-
-  ey_pos = abs_theta;  // Update the stored position after movement is complete
-}
-
-float getShorterPathEY(float theta_deg){
+float getEYAuxSteps(float delta_theta){
   Serial.println("\nDebug getShorterPathEY:");
   Serial.print("Input theta (degrees): ");
-  Serial.println(theta_deg);
   
-  // Convert to radians at the start
-  float theta = DEG_TO_RAD(theta_deg);
-  if(theta_deg>90){
-    theta = DEG_TO_RAD(180-theta_deg);
-  }
-  
-  // Add 0.222 to compensate for slightly different reference frame in geometry calculations
-  float result = 0.96*sin(theta-1.16)+1.9 + 0.222;  // 66.45 degrees = 1.16 radians
-  Serial.print("Final result: ");
-  Serial.println(result);
-  
-  return result;
+  // Convert to radians at the start  
+  float path_length_change = 0.6738*DEG_TO_RAD(delta_theta); //gives path length change in MM
+
+  int steps = MM_TO_STEPS(path_length_change);
+
+  //this is the legit function but we're gonna linearize it float result = 0.96*sin(theta-1.16)+1.9 + 0.222;
+  return steps;
 }
 
 int getEYSteps(float delta_theta){
@@ -547,129 +370,96 @@ int getEYSteps(float delta_theta){
   int steps = (int)(revs * 1600 * 1.3);  // Convert revolutions to steps (1600 steps per rev)
   Serial.print("final steps: ");
   Serial.println(steps);
-  
 
   return steps;
 }
 
-void moveWPTo(float abs_theta){
-  float curr_cable1_PL, curr_cable2_PL;
-  float dest_cable1_PL, dest_cable2_PL;
-
-  float delta_theta = abs_theta - wp_pos;  // Calculate change in angle
+void moveWP(float delta_theta){
   float wp_steps = getWPSteps(delta_theta);  // Convert degrees to mm
-  
-  // Calculate current cable lengths based on current angle
-  if(wp_pos < 90){
-    curr_cable1_PL = getLongerPathWP(wp_pos);
-    curr_cable2_PL = getShorterPathWP(wp_pos);
-  }
-  else{
-    curr_cable1_PL = getShorterPathWP(wp_pos);
-    curr_cable2_PL = getLongerPathWP(wp_pos); 
-  }
-
-  // Calculate desired cable lengths based on target angle
-  if(abs_theta < 90){
-    dest_cable1_PL = getLongerPathWP(abs_theta);
-    dest_cable2_PL = getShorterPathWP(abs_theta);
-  }
-  else{
-    dest_cable1_PL = getShorterPathWP(abs_theta);
-    dest_cable2_PL = getLongerPathWP(abs_theta); 
-  }
-
-  // Calculate required cable length changes
-  float delta_cable1 = dest_cable1_PL - curr_cable1_PL;
-  int cable1_steps = MM_TO_STEPS(delta_cable1);
-  float delta_cable2 = dest_cable2_PL - curr_cable2_PL;
-  int cable2_steps = MM_TO_STEPS(delta_cable2);
-
   // Move all motors
-  WPD.move(wp_steps);
-  WPU.move(wp_steps);
-  // Add any dependent cable motors here when we know which ones they are
 
+  //to move the wrist when the jaw is tensioned we must also move the jaws:
+  //for every one degree of wrist movement, cables change by delta_theta_rad*0.89 = 0.01553 mm 
+  //for every 0.02967 mm of wrist pl change, jaw cables change by 0.01553 mm
+  //for every 11.86 wrist steps i need 6.212 jaw steps
+
+  //pitch up (+ve) --> lengthen right jaw cables
+  //pitch down --> lengthen left jaw cables
+
+  int jaw_steps = int(wp_steps * (6.212/11.86));
+
+  WPD.move(-wp_steps);
+  WPU.move(wp_steps);
+
+  LJL.move(jaw_steps);
+  LJR.move(jaw_steps);
+  RJL.move(-jaw_steps);
+  RJR.move(-jaw_steps);
+
+  Serial.println(wp_steps);
+  Serial.println(jaw_steps);
   // Run all motors until movement is complete
   while(WPD.isRunning() || WPU.isRunning()){
     WPD.run();
     WPU.run();
+    LJL.run();
+    LJR.run();
+    RJL.run();
+    RJR.run();
     // Add dependent cable motors here
   }
 
-  wp_pos = abs_theta;  // Update the stored position after movement is complete
-  Serial.print("Wrist Pitch moved to: ");
-  Serial.println(abs_theta);
+  wp_pos = wp_pos+delta_theta;  // Update the stored position after movement is complete
 }
 
 // Placeholder function to convert degrees to mm for wrist pitch
-float getWPSteps(float delta_theta){
+int getWPSteps(float delta_theta){
+  float effective_radius = 1.7; //mm
+  float delta_s = effective_radius*DEG_TO_RAD(delta_theta);
+  int steps = MM_TO_STEPS(delta_s);
   // TODO: Implement actual mathematical function to convert degrees to mm
   //    THEN MAP MM TO STEPS!
-  return 0.0;
+  return steps;
 }
 
-// Placeholder functions for wrist pitch cable length calculations
-float getLongerPathWP(float theta){
-  // TODO: Implement actual mathematical function
-  return 0.0;
-}
+void moveLJ(float delta_theta){
+  float steps = getJSteps(delta_theta);  // Convert degrees to mm
+  // Move all motors
+  LJR.move(steps);
+  LJL.move(-steps);
+  // Add any dependent cable motors here when we know which ones they are
 
-float getShorterPathWP(float theta){
-  // TODO: Implement actual mathematical function
-  return 0.0;
-}
-
-void detension() {
-  Serial.println("Detensioning cables...");
-  
-  // Set speeds for all motors (negative for counterclockwise)
-  RJR.setSpeed(-100.0);
-  RJL.setSpeed(-100.0);
-  LJR.setSpeed(-100.0);
-  LJL.setSpeed(-100.0);
-  WPD.setSpeed(-100.0);
-  WPU.setSpeed(-100.0);
-  
-  // Run motors for 2 seconds
-  unsigned long startTime = millis();
-  while (millis() - startTime < 2000) {
-    RJR.runSpeed();
-    RJL.runSpeed();
-    LJR.runSpeed();
-    LJL.runSpeed();
-    WPD.runSpeed();
-    WPU.runSpeed();
+  // Run all motors until movement is complete
+  while(LJL.isRunning() || LJR.isRunning()){
+    LJR.run();
+    LJL.run();
+    // Add dependent cable motors here
   }
-  
-  // Stop all motors
-  RJR.setSpeed(0);
-  RJL.setSpeed(0);
-  LJR.setSpeed(0);
-  LJL.setSpeed(0);
-  WPD.setSpeed(0);
-  WPU.setSpeed(0);
-  
-  Serial.println("Detensioning complete");
 }
 
-void tensionMotor(AccelStepper* motor) {
-  Serial.println("Select tension mode:");
-  Serial.println("f - Fine tension (50 speed)");
-  Serial.println("c - Coarse tension (600 speed)");
-  
-  // Wait for user input
-  while (!Serial.available()) {
-    delay(100);
-  }
-  
-  char mode = Serial.read();
-  while (Serial.available()) {
-    Serial.read(); // Clear any additional characters
-  }
-  
+void moveRJ(float steps){
+    // Move all motors
+    RJR.move(steps);
+    RJL.move(-steps);
+    // Run all motors until movement is complete
+    while(RJL.isRunning() || RJR.isRunning()){
+      RJL.run();
+      RJR.run();
+    }
+}
+
+int getJSteps(float delta_theta){
+  float effective_radius = 1.35; //mm
+  float delta_s = effective_radius*DEG_TO_RAD(delta_theta);
+  int steps = MM_TO_STEPS(delta_s);
+  // TODO: Implement actual mathematical function to convert degrees to mm
+  //    THEN MAP MM TO STEPS!
+  return steps;
+}
+
+void tensionMotor(AccelStepper* motor, bool coarse) {
   float tensionSpeed;
-  if (mode == 'c' || mode == 'C') {
+  if (coarse) {
     tensionSpeed = 600.0;
     Serial.println("Coarse tensioning selected");
   } else {
@@ -700,7 +490,7 @@ void tensionMotor(AccelStepper* motor) {
   // Restore original settings
   motor->setMaxSpeed(currentMaxSpeed);
   motor->setAcceleration(currentAccel);
-  motor->setSpeed(0);  // Stop the motor
+  motor->setSpeed(500);  // Stop the motor
   Serial.println("Tensioning stopped");
 }
 
@@ -728,136 +518,8 @@ void detensionMotor(AccelStepper* motor) {
   // Restore original settings
   motor->setMaxSpeed(currentMaxSpeed);
   motor->setAcceleration(currentAccel);
-  motor->setSpeed(0);  // Stop the motor
+  motor->setSpeed(500);  // Stop the motor
   Serial.println("Detensioning stopped");
-}
-
-void testMotors() {
-  bool restartTest = true;
-  
-  while (restartTest) {
-    Serial.println("Run motor test sequence? (y/n)");
-    
-    // Wait for user input
-    while (!Serial.available()) {
-      delay(100);
-    }
-    
-    char input = Serial.read();
-    while (Serial.available()) {
-      Serial.read(); // Clear any additional characters
-    }
-    
-    if (input != 'y' && input != 'Y') {
-      Serial.println("Skipping motor test sequence.");
-      return;
-    }
-    
-    const char* motorNames[] = {"EPD", "EPU", "EYR", "EYL", "WPU", "WPD", "LJR", "LJL", "RJR", "RJL", "ROLL"};
-    
-    for (int i = 0; i < 11; i++) {
-      bool motorTested = false;
-      
-      while (!motorTested) {
-        Serial.print("Testing motor ");
-        Serial.println(motorNames[i]);
-        Serial.println("Moving 5 steps clockwise...");
-        
-        // Move motor 5 steps clockwise
-        motors[i]->move(5);
-        while (motors[i]->distanceToGo() != 0) {
-          motors[i]->run();
-        }
-        
-        Serial.println("Options:");
-        Serial.println("y - Motor moved successfully, proceed to next");
-        Serial.println("n - Retest this motor");
-        Serial.println("t - Tension this motor (fine/coarse)");
-        Serial.println("d - Detension this motor");
-        Serial.println("e - Escape test sequence");
-        
-        // Wait for user input
-        while (!Serial.available()) {
-          delay(100);
-        }
-        
-        char motorInput = Serial.read();
-        while (Serial.available()) {
-          Serial.read(); // Clear any additional characters
-        }
-        
-        if (motorInput == 'y' || motorInput == 'Y') {
-          Serial.println("Motor test successful!");
-          motorTested = true;
-        } else if (motorInput == 'n' || motorInput == 'N') {
-          Serial.println("Retesting motor in 1 second...");
-          delay(1000);
-        } else if (motorInput == 't' || motorInput == 'T') {
-          tensionMotor(motors[i]);
-          Serial.println("Proceed to next motor? (y/n)");
-          while (!Serial.available()) {
-            delay(100);
-          }
-          char proceedInput = Serial.read();
-          while (Serial.available()) {
-            Serial.read(); // Clear any additional characters
-          }
-          if (proceedInput == 'y' || proceedInput == 'Y') {
-            Serial.println("Proceeding to next motor...");
-            motorTested = true;
-          } else {
-            Serial.println("Retesting current motor...");
-            delay(1000);
-          }
-        } else if (motorInput == 'd' || motorInput == 'D') {
-          detensionMotor(motors[i]);
-          Serial.println("Proceed to next motor? (y/n)");
-          while (!Serial.available()) {
-            delay(100);
-          }
-          char proceedInput = Serial.read();
-          while (Serial.available()) {
-            Serial.read(); // Clear any additional characters
-          }
-          if (proceedInput == 'y' || proceedInput == 'Y') {
-            Serial.println("Proceeding to next motor...");
-            motorTested = true;
-          } else {
-            Serial.println("Retesting current motor...");
-            delay(1000);
-          }
-        } else if (motorInput == 'e' || motorInput == 'E') {
-          Serial.println("Test sequence aborted.");
-          return;
-        } else {
-          Serial.println("Invalid input. Retesting motor in 1 second...");
-          delay(1000);
-        }
-      }
-      
-      // Small delay between motors
-      delay(1000);
-    }
-    
-    Serial.println("All motors tested successfully!");
-    Serial.println("Options:");
-    Serial.println("y - Run test sequence again");
-    Serial.println("n - End test sequence");
-    
-    // Wait for user input
-    while (!Serial.available()) {
-      delay(100);
-    }
-    
-    char restartInput = Serial.read();
-    while (Serial.available()) {
-      Serial.read(); // Clear any additional characters
-    }
-    
-    if (restartInput != 'y' && restartInput != 'Y') {
-      restartTest = false;
-    }
-  }
 }
 
 void getEPLength(float theta_deg, float& shorter, float& longer){
@@ -877,146 +539,6 @@ void getEPLength(float theta_deg, float& shorter, float& longer){
   float y2 = 3.3+1.89*sin(theta+1.43);
   longer = sqrt(pow(x2,2)+pow(y2,2)) + 2.2324;
 }
-
-void moveEPTo_EZ(float abs_theta){
-  float K = 1.4; //open loop gain
-  float delta_theta_rad = DEG_TO_RAD(ep_pos-abs_theta);  // Calculate change in angle
-  float delta_s = delta_theta_rad*3.24;
-  int steps = MM_TO_STEPS(delta_s)*K;
-  if (verbose_output){
-    Serial.println("\nMovement values for verification:");
-    Serial.print("Initial theta: ");
-    Serial.println(ep_pos);
-    Serial.print("Final theta: ");
-    Serial.println(abs_theta);
-    Serial.print("Steps: ");
-    Serial.println(steps);
-    
-    Serial.println("\nProceed with movement? (y/n)");
-    
-    // Wait for user input
-    while (!Serial.available()) {
-      delay(100);
-    }
-    
-    char input = Serial.read();
-    while (Serial.available()) {
-      Serial.read(); // Clear any additional characters
-    }
-    
-    if (input != 'y' && input != 'Y') {
-      Serial.println("Movement cancelled.");
-      return;
-    }
-  }
-  
-  EPU.move(steps);
-  EPD.move(-steps);
-
-  // Run motors until movement is complete
-  while((EPU.isRunning() || EPD.isRunning())){
-    EPU.run();
-    EPD.run();
-  }
-
-  ep_pos = abs_theta;
-}
-
-void moveEPToTest(float abs_theta){
-
-  float K = 2.8; //open loop gain
-
-  float delta_theta = ep_pos-abs_theta;  // Calculate change in angle
-
-  float shorter_initial, longer_initial;
-  getEPLength(ep_pos, shorter_initial, longer_initial);
-  
-  float pitch_up_initial, pitch_down_initial;
-  if (ep_pos<90){
-    pitch_up_initial = shorter_initial;
-    pitch_down_initial = longer_initial;
-  }
-  else{
-    pitch_up_initial = longer_initial;
-    pitch_down_initial = shorter_initial;
-  }
-
-  float shorter_final, longer_final;
-  getEPLength(abs_theta, shorter_final, longer_final);
-  
-  float pitch_up_final, pitch_down_final;
-  if (abs_theta<90){
-    pitch_up_final = shorter_final;
-    pitch_down_final = longer_final;
-  }
-  else{
-    pitch_up_final = longer_final;
-    pitch_down_final = shorter_final;
-  }
-
-  float delta_pitch_up_pl = pitch_up_initial - pitch_up_final;
-  float delta_pitch_down_pl = pitch_down_initial - pitch_down_final;
-
-  float pitch_up_steps = MM_TO_STEPS(delta_pitch_up_pl)*K;
-  float pitch_down_steps = MM_TO_STEPS(delta_pitch_down_pl)*K;
-
-  if (verbose_output){
-    Serial.println("\nMovement values for verification:");
-    Serial.print("Initial theta: ");
-    Serial.println(ep_pos);
-    Serial.print("Final theta: ");
-    Serial.println(abs_theta);
-    Serial.print("Delta theta: ");
-    Serial.println(delta_theta);
-    Serial.print("Elbow pitch up steps: ");
-    Serial.println(pitch_up_steps);
-    Serial.print("Elbow pitch down steps: ");
-    Serial.println(pitch_down_steps);
-    
-    Serial.println("\nProceed with movement? (y/n)");
-    
-    // Wait for user input
-    while (!Serial.available()) {
-      delay(100);
-    }
-    
-    char input = Serial.read();
-    while (Serial.available()) {
-      Serial.read(); // Clear any additional characters
-    }
-    
-    if (input != 'y' && input != 'Y') {
-      Serial.println("Movement cancelled.");
-      return;
-    }
-  }
-
-  // Calculate the ratio of steps to determine speed scaling
-  float max_steps = max(abs(pitch_up_steps), abs(pitch_down_steps));
-  float speed_ratio_up = abs(pitch_up_steps) / max_steps;
-  float speed_ratio_down = abs(pitch_down_steps) / max_steps;
-
-  // Set speeds proportionally to the step counts
-  EPU.setMaxSpeed(100 * speed_ratio_up);
-  EPD.setMaxSpeed(100 * speed_ratio_down);
-
-  //set the EPU and EPD motors
-  EPU.move(pitch_up_steps);
-  EPD.move(pitch_down_steps);
-
-  // Run motors until movement is complete
-  while((EPU.isRunning() || EPD.isRunning())){
-    EPU.run();
-    EPD.run();
-  }
-
-  // Reset speeds to default
-  EPU.setMaxSpeed(100.0);
-  EPD.setMaxSpeed(100.0);
-
-  ep_pos = abs_theta;  // Update the stored position after movement is complete
-}
-
 
 int getEPSteps(float delta_theta){
 
@@ -1067,5 +589,32 @@ void getEYLength(float theta_deg, float& shorter, float& longer){
   }
 
   longer = 1.1*(1.5708-theta)+2.5099;
+}
+
+void moveEPandEY(float pitch_delta, float yaw_delta) {
+  // Move both pitch and yaw simultaneously
+  float K = 1.4;
+  float theta_rad_ep = DEG_TO_RAD(pitch_delta);
+  float theta_rad_ey = DEG_TO_RAD(yaw_delta);
+  float delta_s_ep = theta_rad_ep * 3.24;
+  float delta_s_ey = theta_rad_ey * 3.1;
+  int steps_ep = MM_TO_STEPS(delta_s_ep) * K;
+  int steps_ey = MM_TO_STEPS(delta_s_ey) * K;
+
+  // Pitch: EPU/EPD, Yaw: EYR/EYL
+  EPU.move(steps_ep);
+  EPD.move(-steps_ep);
+  EYR.move(steps_ey);
+  EYL.move(-steps_ey);
+
+  // Run all motors until movement is complete
+  while (EPU.isRunning() || EPD.isRunning() || EYR.isRunning() || EYL.isRunning()) {
+    EPU.run();
+    EPD.run();
+    EYR.run();
+    EYL.run();
+  }
+  ep_pos += pitch_delta;
+  ey_pos += yaw_delta;
 }
 
