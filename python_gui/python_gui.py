@@ -7,6 +7,21 @@ import threading
 from PIL import Image, ImageTk
 import os
 import numpy as np
+from enum import IntEnum
+import json # --- NEW: Import JSON module ---
+
+class MotorIndex(IntEnum):
+    EPU = 0
+    EPD = 1
+    EYR = 2
+    EYL = 3
+    WPD = 4
+    WPU = 5
+    RJL = 6
+    LJR = 7
+    LJL = 8
+    RJR = 9
+    ROLL = 10
 
 class ElbowSimulatorGUI:
     def __init__(self, root):
@@ -336,13 +351,16 @@ class ElbowSimulatorGUI:
             name = response.split(":", 1)[1]
             self.selected_motor = name
             if self.test_motors_window and self.test_motors_window.winfo_exists():
-                self.highlight_selected_motor_in_window() # Update highlight in Toplevel
-            self.log_test_motors_output(f"Arduino selected motor: {name}") # Log to Toplevel's log
+                self.highlight_selected_motor_in_window()
+            self.log_test_motors_output(f"Arduino selected motor: {name}")
+        elif response.startswith("VERBOSE_STATE:"):
+            state = response.split(":")[1].strip()
+            self.is_verbose = (state == "1")
+            self.log_message(f"Verbose mode {'ON' if self.is_verbose else 'OFF'}")
         else:
-            self.log_message(f"Arduino: {response}") # General log
-            # If test motors window is open, also log there
+            self.log_message(f"Arduino: {response}")
             if self.test_motors_window and self.test_motors_window.winfo_exists():
-                 if hasattr(self, 'test_motors_output_text_widget') and self.test_motors_output_text_widget: # Check if widget exists
+                if hasattr(self, 'test_motors_output_text_widget') and self.test_motors_output_text_widget:
                     self.log_test_motors_output(f"Arduino: {response}")
 
 
@@ -378,10 +396,8 @@ class ElbowSimulatorGUI:
         if steps != 0: self.send_command(f"MOVE_RJ_REL:{steps}")
 
     def set_verbose(self, state):
-        self.is_verbose = state
-        self.send_command(f"SET_VERBOSE:{1 if state else 0}")
-        self.log_message(f"Verbose mode {'ON' if state else 'OFF'}")
-
+        """Set verbose mode. State parameter is kept for button functionality."""
+        self.send_command("TOGGLE_VERBOSE")
 
     def open_test_motors_window(self):
         if self.test_motors_window and self.test_motors_window.winfo_exists():
@@ -682,10 +698,14 @@ class ElbowSimulatorGUI:
             messagebox.showerror("Input Error", "Invalid degree value. Please enter numbers only.", parent=self.root)
             return
 
-        all_motor_steps = self._calculate_all_motor_steps_from_degrees(ep_deg, ey_deg, wp_deg, lj_deg, rj_deg)
-        command_str = "MOVE_ALL_MOTORS:" + ",".join(map(str, all_motor_steps))
-        self.send_command(command_str)
+        # Calculate steps for all motors
+        motor_steps = self._calculate_all_motor_steps_from_degrees(ep_deg, ey_deg, wp_deg, lj_deg, rj_deg)
+        
+        # Create a comma-separated string of steps in enum order
+        motor_steps_str = ",".join(str(steps) for steps in motor_steps)
+        self.send_command(f"MOVE_ALL_MOTORS:{motor_steps_str}")
 
+        # Update cumulative degrees
         self.cumulative_ep_degrees_var.set(round(self.cumulative_ep_degrees_var.get() + ep_deg, 2))
         self.cumulative_ey_degrees_var.set(round(self.cumulative_ey_degrees_var.get() + ey_deg, 2))
         self.cumulative_wp_degrees_var.set(round(self.cumulative_wp_degrees_var.get() + wp_deg, 2))
@@ -717,17 +737,17 @@ class ElbowSimulatorGUI:
     def get_steps_elbow_pitch(self, degrees_ep):
         # REMEMBER: RETURN FORMAT IS [EPU, EPD, EYR, EYL, WPD, WPU, RJL, LJR, LJL, RJR, ROLL]
         steps_ep_calc = int(degrees_ep * 100) # Assuming 100 steps per degree for EP
-        motor_steps = [0] * 11
-        motor_steps[0] = steps_ep_calc  # EPU steps
-        motor_steps[1] = -steps_ep_calc # EPD steps (example: opposite for pitch)
+        motor_steps = [0] * len(MotorIndex)
+        motor_steps[MotorIndex.EPU] = steps_ep_calc
+        motor_steps[MotorIndex.EPD] = -steps_ep_calc
         return motor_steps
 
     def get_steps_elbow_yaw(self, degrees_ey):
         # REMEMBER: RETURN FORMAT IS [EPU, EPD, EYR, EYL, WPD, WPU, RJL, LJR, LJL, RJR, ROLL]
         steps_ey_calc = int(degrees_ey * 100) # Assuming 100 steps per degree for EY
-        motor_steps = [0] * 11
-        motor_steps[2] = steps_ey_calc  # EYR steps
-        motor_steps[3] = -steps_ey_calc # EYL steps (example: opposite for yaw)
+        motor_steps = [0] * len(MotorIndex)
+        motor_steps[MotorIndex.EYR] = steps_ey_calc
+        motor_steps[MotorIndex.EYL] = -steps_ey_calc
         return motor_steps
     
     def get_steps_wrist_pitch(self, degrees_wp):
@@ -736,6 +756,8 @@ class ElbowSimulatorGUI:
         mm_wp = rad_wp*1.7
         steps_wp = int(mm_wp*(200/0.3))
 
+        motor_steps = [0] * len(MotorIndex)
+        
         ##auxiliary cables: 
 
         current_q_wrist_deg = 90+self.cumulative_wp_degrees_var.get()
@@ -766,18 +788,24 @@ class ElbowSimulatorGUI:
         steps_lj = -int(delta_LJ*(200/0.3))
         steps_rj = -int(delta_RJ*(200/0.3))
 
-        #REMEMBER: RETURN FORMAT IS {&EPU, &EPD, &EYR, &EYL, &WPD, &WPU, &RJL, &LJR, &LJL, &RJR, &ROLL}
-
-        
-        return [0, 0, 0, 0, -steps_wp, steps_wp, steps_rj, steps_lj, steps_lj, steps_rj, 0]
+        motor_steps[MotorIndex.WPD] = -steps_wp
+        motor_steps[MotorIndex.WPU] = steps_wp
+        motor_steps[MotorIndex.RJL] = steps_rj
+        motor_steps[MotorIndex.LJR] = steps_lj
+        motor_steps[MotorIndex.LJL] = steps_lj
+        motor_steps[MotorIndex.RJR] = steps_rj
+        return motor_steps
 
     def get_steps_left_jaw(self, degrees_lj):
         #radius = 1.35
         rad_lj = math.radians(degrees_lj)
         mm_lj = rad_lj*1.35
         steps_lj = int(mm_lj * (200/0.3)) 
-        #REMEMBER: RETURN FORMAT IS {&EPU, &EPD, &EYR, &EYL, &WPD, &WPU, &RJL, &LJR, &LJL, &RJR, &ROLL}
-        return [0, 0, 0, 0, 0, 0, 0, steps_lj, -steps_lj, 0, 0]
+        
+        motor_steps = [0] * len(MotorIndex)
+        motor_steps[MotorIndex.LJR] = steps_lj
+        motor_steps[MotorIndex.LJL] = -steps_lj
+        return motor_steps
 
     def get_steps_right_jaw(self, degrees_rj):
         #radius = 1.35
@@ -785,42 +813,35 @@ class ElbowSimulatorGUI:
         mm_rj = rad_rj*1.35
         steps_rj = int(mm_rj * (200/0.3)) 
 
-        #REMEMBER: RETURN FORMAT IS {&EPU, &EPD, &EYR, &EYL, &WPD, &WPU, &RJL, &LJR, &LJL, &RJR, &ROLL}
-        return [0, 0, 0, 0, 0, 0, -steps_rj, 0, 0, steps_rj, 0]
+        motor_steps = [0] * len(MotorIndex)
+        motor_steps[MotorIndex.RJL] = -steps_rj
+        motor_steps[MotorIndex.RJR] = steps_rj
+        return motor_steps
 
     def _calculate_all_motor_steps_from_degrees(self, ep_deg, ey_deg, wp_deg, lj_deg, rj_deg):
-        # ... (same as before) ...
-
-        # Initialize a list to store the total steps for each of the 11 motor outputs
-        total_motor_steps = [0] * 11
+        # Initialize a list to store the total steps for each motor
+        total_motor_steps = [0] * len(MotorIndex)
 
         joint_processors = {
             "EP": (ep_deg, self.get_steps_elbow_pitch),
             "EY": (ey_deg, self.get_steps_elbow_yaw),
-            "WP": (wp_deg, self.get_steps_wrist_pitch), # This will also handle jaw compensations internally or its output will be combined
+            "WP": (wp_deg, self.get_steps_wrist_pitch),
             "LJ": (lj_deg, self.get_steps_left_jaw),
             "RJ": (rj_deg, self.get_steps_right_jaw),
         }
 
-        # Iterate through each joint processor
         for joint_name, (degree_delta, get_steps_function) in joint_processors.items():
             if degree_delta != 0:
-                # Call the appropriate get_steps_... function
-                # This function is responsible for all direct and coupled effects for that joint's movement.
-                # For example, get_steps_wrist_pitch should internally calculate WPU/WPD steps
-                # AND the compensatory jaw motor steps based on the wrist's absolute position change.
                 try:
                     self.log_message(f"Calculating steps for {joint_name} with delta: {degree_delta}")
                     joint_specific_motor_steps = get_steps_function(degree_delta)
-                    for i in range(11):
-                        total_motor_steps[i] += joint_specific_motor_steps[i]
-                        self.log_message(f"Steps from {joint_name}: {joint_specific_motor_steps}")
+                    for idx in MotorIndex:
+                        total_motor_steps[idx] += joint_specific_motor_steps[idx]
+                    self.log_message(f"Steps from {joint_name}: {joint_specific_motor_steps}")
                 except Exception as e:
                     self.log_message(f"Error calling {get_steps_function.__name__} for {joint_name}: {e}")
         
-        # Round all steps to the nearest integer before returning
         final_integer_steps = [int(round(s)) for s in total_motor_steps]
-
         self.log_message(f"Final calculated steps for all motors: {final_integer_steps}")
         return final_integer_steps
 
