@@ -6,7 +6,7 @@ import config as cf
 
 jaw_radius = 1.35 #mm
 
-def get_steps_L(delta_theta):
+def get_steps_L(curr_theta, delta_theta):
     #radius = 1.35
     delta_s = math.radians(delta_theta)*jaw_radius
     steps = int(delta_s * (cf.STEPS_TO_MM_LS)) 
@@ -17,7 +17,7 @@ def get_steps_L(delta_theta):
     
     return motor_steps
 
-def get_steps_R(delta_theta):
+def get_steps_R(curr_theta, delta_theta):
     #radius = 1.35
     delta_s = math.radians(delta_theta)*jaw_radius
     steps = int(delta_s * (cf.STEPS_TO_MM_LS)) 

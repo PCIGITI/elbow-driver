@@ -1,13 +1,14 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-from PIL import Image, ImageTk
+# from PIL import Image, ImageTk # Removed as logo functionality is gone
+# import os # Removed if not used elsewhere
+# import json # Removed as unused
+
 import config # For constants, MotorIndex
 from config import MotorIndex
 from test_motors_gui import TestMotorsWindow # The Toplevel window
 import q1_pl, q2_pl, q3_pl, q4_pl, roll # Joint processors for step calculations
 
-# motor_control_logic.py will be instantiated in main.py and passed here
-# serial_handler.py will be instantiated in main.py and passed here
 
 class ElbowSimulatorGUI:
     def __init__(self, root, serial_handler):
@@ -17,21 +18,23 @@ class ElbowSimulatorGUI:
         self.root.title(config.APP_TITLE)
         self.root.geometry(config.MAIN_WINDOW_GEOMETRY)
 
-        # Pass callbacks to serial_handler 
         self.serial_handler.set_callbacks(
             data_callback=self._handle_serial_data,
             status_callback=self._update_connection_status_display,
             error_callback=self._handle_serial_error
         )
-        self.is_verbose_arduino_side = False # To track Arduino's verbose state
+        self.is_verbose_arduino_side = False
         self.test_motors_window_instance = None
         self.selected_motor_for_test_mode = config.MOTOR_NAMES_FLAT[8] # Default to "EPD"
 
         # --- Tkinter Variables ---
-        
-        # Step Control
         self.current_step_size_var = tk.IntVar(value=config.DEFAULT_STEP_SIZE_INDEX)
-        # Positional Control Inputs
+        
+        # NEW: Variable to toggle D-Pad control mode
+        # True = Direct Step Control, False = Degree-Based Control
+        self.d_pad_degree_mode_var = tk.BooleanVar(value=False) # Default to Degree mode for D-Pads
+
+        # Positional Control Inputs (for the dedicated degree input fields)
         self.ep_degrees_input_var = tk.StringVar(value="0.0")
         self.ey_degrees_input_var = tk.StringVar(value="0.0")
         self.wp_degrees_input_var = tk.StringVar(value="0.0")
@@ -39,8 +42,9 @@ class ElbowSimulatorGUI:
         self.rj_degrees_input_var = tk.StringVar(value="0.0")
         self.roll_degrees_input_var = tk.StringVar(value="0.0")
 
-
         # Positional Control Cumulative Display
+        # These store the current *absolute* position of the joints,
+        # often with a reference (e.g., 90 degrees for EP/EY/WP/LJ/RJ, 0 for Roll).
         self.cumulative_ep_degrees_var = tk.DoubleVar(value=90.0)
         self.cumulative_ey_degrees_var = tk.DoubleVar(value=90.0)
         self.cumulative_wp_degrees_var = tk.DoubleVar(value=90.0)
@@ -50,10 +54,10 @@ class ElbowSimulatorGUI:
 
         self._setup_main_layout()
         self._create_widgets()
-        self._create_output_area() # Ensure output_text is created before logging
+        self._create_output_area() 
+        self._update_d_pad_mode_and_slider_label() # Initialize D-pad mode display
 
         self.log_message(f"{config.APP_TITLE} initialized.")
-
 
     def _setup_main_layout(self):
         self.canvas = tk.Canvas(self.root, borderwidth=0, background="#f0f0f0")
@@ -65,7 +69,7 @@ class ElbowSimulatorGUI:
         self.container_frame = ttk.Frame(self.canvas)
         self.main_frame_id = self.canvas.create_window((0, 0), window=self.container_frame, anchor="nw")
 
-        self.main_content_frame = ttk.Frame(self.container_frame, padding="10") # Renamed for clarity
+        self.main_content_frame = ttk.Frame(self.container_frame, padding="10")
         self.main_content_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.container_frame.columnconfigure(0, weight=1)
 
@@ -79,7 +83,7 @@ class ElbowSimulatorGUI:
         self.canvas.itemconfig(self.main_frame_id, width=event.width)
 
     def _create_widgets(self):
-        # Row 0: Connection
+        # Row 0: Connection (No changes)
         conn_frame = ttk.LabelFrame(self.main_content_frame, text="Arduino Connection", padding="5")
         conn_frame.grid(row=0, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
         ttk.Label(conn_frame, text="Port:").grid(row=0, column=0, padx=5, pady=5)
@@ -92,73 +96,88 @@ class ElbowSimulatorGUI:
         self.status_label.grid(row=0, column=3, padx=5, pady=5, sticky=tk.W)
         conn_frame.columnconfigure(3, weight=1)
 
-        # Row 1: Direct Step Control
-        movement_super_frame = ttk.LabelFrame(self.main_content_frame, text="Direct Step Control", padding="5")
-        movement_super_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        # Row 1: D-Pad Controls (Modified Frame Name and added Checkbutton)
+        d_pad_super_frame = ttk.LabelFrame(self.main_content_frame, text="D-Pad Controls", padding="5")
+        d_pad_super_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+
+        # Frame for the actual D-Pads
+        d_pads_container = ttk.Frame(d_pad_super_frame)
+        d_pads_container.grid(row=0, column=0, columnspan=3) # Spans across for centering D-Pads
 
         # Elbow D-Pad
-        elbow_ctrl_frame = ttk.Frame(movement_super_frame, padding="5")
-        elbow_ctrl_frame.grid(row=0, column=0, padx=10, pady=5, sticky=tk.N)
+        elbow_ctrl_frame = ttk.Frame(d_pads_container, padding="5")
+        elbow_ctrl_frame.grid(row=0, column=0, padx=10, pady=5, sticky=tk.N) # Column 0 in container
         ttk.Label(elbow_ctrl_frame, text="Elbow Ctrl", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, columnspan=3, pady=(0,5))
-        # ... (D-pad buttons, commands call self._direct_move_pitch_yaw_action)
-        ttk.Button(elbow_ctrl_frame, text="↖", width=3, command=lambda: self._direct_move_pitch_yaw_action(self._get_current_step_size(), -self._get_current_step_size())).grid(row=1, column=0)
-        ttk.Button(elbow_ctrl_frame, text="↑", width=3, command=lambda: self._direct_move_pitch_yaw_action(self._get_current_step_size(), 0)).grid(row=1, column=1)
-        ttk.Button(elbow_ctrl_frame, text="↗", width=3, command=lambda: self._direct_move_pitch_yaw_action(self._get_current_step_size(), self._get_current_step_size())).grid(row=1, column=2)
-        ttk.Button(elbow_ctrl_frame, text="←", width=3, command=lambda: self._direct_move_pitch_yaw_action(0, -self._get_current_step_size())).grid(row=2, column=0)
-        tk.Label(elbow_ctrl_frame, text=" ").grid(row=2, column=1) # Spacer
-        ttk.Button(elbow_ctrl_frame, text="→", width=3, command=lambda: self._direct_move_pitch_yaw_action(0, self._get_current_step_size())).grid(row=2, column=2)
-        ttk.Button(elbow_ctrl_frame, text="↙", width=3, command=lambda: self._direct_move_pitch_yaw_action(-self._get_current_step_size(), -self._get_current_step_size())).grid(row=3, column=0)
-        ttk.Button(elbow_ctrl_frame, text="↓", width=3, command=lambda: self._direct_move_pitch_yaw_action(-self._get_current_step_size(), 0)).grid(row=3, column=1)
-        ttk.Button(elbow_ctrl_frame, text="↘", width=3, command=lambda: self._direct_move_pitch_yaw_action(-self._get_current_step_size(), self._get_current_step_size())).grid(row=3, column=2)
+        ttk.Button(elbow_ctrl_frame, text="↖", width=3, command=lambda: self._d_pad_elbow_action(self._get_slider_value(), -self._get_slider_value())).grid(row=1, column=0)
+        ttk.Button(elbow_ctrl_frame, text="↑", width=3, command=lambda: self._d_pad_elbow_action(self._get_slider_value(), 0)).grid(row=1, column=1)
+        ttk.Button(elbow_ctrl_frame, text="↗", width=3, command=lambda: self._d_pad_elbow_action(self._get_slider_value(), self._get_slider_value())).grid(row=1, column=2)
+        ttk.Button(elbow_ctrl_frame, text="←", width=3, command=lambda: self._d_pad_elbow_action(0, -self._get_slider_value())).grid(row=2, column=0)
+        tk.Label(elbow_ctrl_frame, text=" ").grid(row=2, column=1) 
+        ttk.Button(elbow_ctrl_frame, text="→", width=3, command=lambda: self._d_pad_elbow_action(0, self._get_slider_value())).grid(row=2, column=2)
+        ttk.Button(elbow_ctrl_frame, text="↙", width=3, command=lambda: self._d_pad_elbow_action(-self._get_slider_value(), -self._get_slider_value())).grid(row=3, column=0)
+        ttk.Button(elbow_ctrl_frame, text="↓", width=3, command=lambda: self._d_pad_elbow_action(-self._get_slider_value(), 0)).grid(row=3, column=1)
+        ttk.Button(elbow_ctrl_frame, text="↘", width=3, command=lambda: self._d_pad_elbow_action(-self._get_slider_value(), self._get_slider_value())).grid(row=3, column=2)
 
-        # Wrist Pitch Control
-        wrist_ctrl_frame = ttk.Frame(movement_super_frame, padding="5")
-        wrist_ctrl_frame.grid(row=0, column=1, padx=10, pady=5, sticky=tk.N)
+        # Wrist Pitch D-Pad
+        wrist_ctrl_frame = ttk.Frame(d_pads_container, padding="5")
+        wrist_ctrl_frame.grid(row=0, column=1, padx=10, pady=5, sticky=tk.N) # Column 1 in container
         ttk.Label(wrist_ctrl_frame, text="Wrist Pitch Ctrl", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, pady=(0,5))
-        ttk.Button(wrist_ctrl_frame, text="↑", width=4, command=lambda: self._direct_move_wrist_pitch_action(self._get_current_step_size())).grid(row=1, column=0)
-        ttk.Button(wrist_ctrl_frame, text="↓", width=4, command=lambda: self._direct_move_wrist_pitch_action(-self._get_current_step_size())).grid(row=2, column=0)
+        ttk.Button(wrist_ctrl_frame, text="↑", width=4, command=lambda: self._d_pad_wrist_action(self._get_slider_value())).grid(row=1, column=0)
+        ttk.Button(wrist_ctrl_frame, text="↓", width=4, command=lambda: self._d_pad_wrist_action(-self._get_slider_value())).grid(row=2, column=0)
 
-        # Jaw Control
-        jaw_ctrl_frame = ttk.Frame(movement_super_frame, padding="5")
-        jaw_ctrl_frame.grid(row=0, column=2, padx=10, pady=5, sticky=tk.N)
+        # Jaw D-Pads
+        jaw_ctrl_frame = ttk.Frame(d_pads_container, padding="5")
+        jaw_ctrl_frame.grid(row=0, column=2, padx=10, pady=5, sticky=tk.N) # Column 2 in container
         ttk.Label(jaw_ctrl_frame, text="Jaw Ctrl", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, columnspan=3, pady=(0,5))
         ttk.Label(jaw_ctrl_frame, text="Left Jaw:").grid(row=1, column=0, sticky=tk.E)
-        ttk.Button(jaw_ctrl_frame, text="←", width=3, command=lambda: self._direct_move_left_jaw_action(-self._get_current_step_size())).grid(row=1, column=1)
-        ttk.Button(jaw_ctrl_frame, text="→", width=3, command=lambda: self._direct_move_left_jaw_action(self._get_current_step_size())).grid(row=1, column=2)
+        ttk.Button(jaw_ctrl_frame, text="←", width=3, command=lambda: self._d_pad_left_jaw_action(-self._get_slider_value())).grid(row=1, column=1)
+        ttk.Button(jaw_ctrl_frame, text="→", width=3, command=lambda: self._d_pad_left_jaw_action(self._get_slider_value())).grid(row=1, column=2)
         ttk.Label(jaw_ctrl_frame, text="Right Jaw:").grid(row=2, column=0, sticky=tk.E)
-        ttk.Button(jaw_ctrl_frame, text="←", width=3, command=lambda: self._direct_move_right_jaw_action(-self._get_current_step_size())).grid(row=2, column=1)
-        ttk.Button(jaw_ctrl_frame, text="→", width=3, command=lambda: self._direct_move_right_jaw_action(self._get_current_step_size())).grid(row=2, column=2)
+        ttk.Button(jaw_ctrl_frame, text="←", width=3, command=lambda: self._d_pad_right_jaw_action(-self._get_slider_value())).grid(row=2, column=1)
+        ttk.Button(jaw_ctrl_frame, text="→", width=3, command=lambda: self._d_pad_right_jaw_action(self._get_slider_value())).grid(row=2, column=2)
+        
+        d_pads_container.columnconfigure(0, weight=1)
+        d_pads_container.columnconfigure(1, weight=1)
+        d_pads_container.columnconfigure(2, weight=1)
 
-        # Step Size Slider
-        slider_frame = ttk.Frame(movement_super_frame)
-        slider_frame.grid(row=1, column=0, columnspan=3, pady=(10,5))
-        ttk.Label(slider_frame, text="Movement Steps:").pack(side=tk.LEFT, padx=(0,5))
+        # D-Pad Mode Toggle and Slider (now below the D-Pads within d_pad_super_frame)
+        d_pad_mode_slider_frame = ttk.Frame(d_pad_super_frame)
+        d_pad_mode_slider_frame.grid(row=1, column=0, columnspan=3, pady=(10,5))
+
+        self.d_pad_mode_button = ttk.Checkbutton(
+            d_pad_mode_slider_frame,
+            text="D-Pad Mode: Degrees", # Initial text, will be updated
+            variable=self.d_pad_degree_mode_var,
+            command=self._update_d_pad_mode_and_slider_label,
+            style="Toolbutton" # Makes it look more like a toggle button
+        )
+        self.d_pad_mode_button.pack(side=tk.LEFT, padx=(0,10))
+        
+        ttk.Label(d_pad_mode_slider_frame, text="Increment:").pack(side=tk.LEFT, padx=(0,5))
         self.step_size_slider = ttk.Scale(
-            slider_frame, from_=0, to=len(config.STEP_SIZES) - 1, orient=tk.HORIZONTAL,
-            variable=self.current_step_size_var, command=self._update_step_size_display_label, length=200)
+            d_pad_mode_slider_frame, from_=0, to=len(config.STEP_SIZES) - 1, orient=tk.HORIZONTAL,
+            variable=self.current_step_size_var, command=self._update_d_pad_mode_and_slider_label, length=150) # Reduced length
         self.step_size_slider.pack(side=tk.LEFT, padx=(0,5))
         self.step_size_slider.set(self.current_step_size_var.get())
-        self.step_size_display_label = ttk.Label(slider_frame, text="", width=10) # Text set by _update_step_size_display_label
-        self.step_size_display_label.pack(side=tk.LEFT)
-        self._update_step_size_display_label() # Initialize
+        
+        self.d_pad_increment_display_label = ttk.Label(d_pad_mode_slider_frame, text="", width=12) # Renamed for clarity
+        self.d_pad_increment_display_label.pack(side=tk.LEFT)
+        # self._update_d_pad_mode_and_slider_label() # Called from __init__
 
-        movement_super_frame.columnconfigure(0, weight=1); movement_super_frame.columnconfigure(1, weight=1); movement_super_frame.columnconfigure(2, weight=1)
-
-
-        # Row 2: System Commands
+        # Row 2: System Commands (No changes)
         sys_cmd_frame = ttk.LabelFrame(self.main_content_frame, text="System Commands", padding="5")
         sys_cmd_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
-        # Toggle Verbose button instead of two separate ones
-        self.verbose_button = ttk.Button(sys_cmd_frame, text="Toggle Verbose (OFF)", command=self._toggle_verbose_action)
+        self.verbose_button = ttk.Button(sys_cmd_frame, text="Toggle Verbose (OFF)", command=self._toggle_arduino_verbose_action)
         self.verbose_button.grid(row=0, column=0, padx=5, pady=5)
         ttk.Button(sys_cmd_frame, text="Start Test Motors", command=self._open_test_motors_window_action).grid(row=0, column=1, padx=5, pady=5)
-        sys_cmd_frame.columnconfigure(2, weight=1) # Adjust if more buttons
+        sys_cmd_frame.columnconfigure(2, weight=1)
 
-        # Row 3: Inline Positional Control Frame
+        # Row 3: Inline Positional Control Frame (Dedicated Degree Input)
         self._create_positional_control_frame_widgets(self.main_content_frame)
 
     def _create_positional_control_frame_widgets(self, parent_frame):
-        positional_super_frame = ttk.LabelFrame(parent_frame, text="Positional Control (Degrees)", padding="10")
+        # ... (This method for dedicated degree input fields remains the same) ...
+        positional_super_frame = ttk.LabelFrame(parent_frame, text="Positional Control (Dedicated Input Fields)", padding="10")
         positional_super_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
         parent_frame.grid_rowconfigure(3, weight=0)
 
@@ -191,61 +210,54 @@ class ElbowSimulatorGUI:
         self.rj_degrees_entry.grid(row=row_idx, column=1, pady=2)
         row_idx += 1
 
-        # ADDED ROLL INPUT
         ttk.Label(input_frame, text="Roll (°):").grid(row=row_idx, column=0, sticky="w", pady=2)
         self.roll_degrees_entry = ttk.Entry(input_frame, textvariable=self.roll_degrees_input_var, width=10)
         self.roll_degrees_entry.grid(row=row_idx, column=1, pady=2)
         row_idx += 1
 
-        ttk.Button(input_frame, text="Move Joints by Degrees", command=self._move_by_degrees_action, width=25).grid(row=row_idx, column=0, columnspan=2, pady=10)
+        ttk.Button(input_frame, text="Move Joints by Degrees", command=self._dedicated_move_by_degrees_action, width=25).grid(row=row_idx, column=0, columnspan=2, pady=10)
 
-        cumulative_frame = ttk.LabelFrame(positional_super_frame, text="Cumulative Joint Position (Degrees from Home)", padding="10")
+        cumulative_frame = ttk.LabelFrame(positional_super_frame, text="Cumulative Joint Position (Degrees from Ref)", padding="10")
         cumulative_frame.grid(row=0, column=1, padx=5, pady=5, sticky="ns")
-
+        # ... (Cumulative display labels as before, including Roll) ...
         row_idx = 0
         ttk.Label(cumulative_frame, text="Elbow Pitch:").grid(row=row_idx, column=0, sticky="w", pady=2)
         ttk.Label(cumulative_frame, textvariable=self.cumulative_ep_degrees_var, width=8, anchor="e").grid(row=row_idx, column=1, sticky="e", pady=2)
         ttk.Label(cumulative_frame, text="°").grid(row=row_idx, column=2, sticky="w", pady=2)
         row_idx += 1
-
         ttk.Label(cumulative_frame, text="Elbow Yaw:").grid(row=row_idx, column=0, sticky="w", pady=2)
         ttk.Label(cumulative_frame, textvariable=self.cumulative_ey_degrees_var, width=8, anchor="e").grid(row=row_idx, column=1, sticky="e", pady=2)
         ttk.Label(cumulative_frame, text="°").grid(row=row_idx, column=2, sticky="w", pady=2)
         row_idx += 1
-
         ttk.Label(cumulative_frame, text="Wrist Pitch:").grid(row=row_idx, column=0, sticky="w", pady=2)
         ttk.Label(cumulative_frame, textvariable=self.cumulative_wp_degrees_var, width=8, anchor="e").grid(row=row_idx, column=1, sticky="e", pady=2)
         ttk.Label(cumulative_frame, text="°").grid(row=row_idx, column=2, sticky="w", pady=2)
         row_idx += 1
-
         ttk.Label(cumulative_frame, text="Left Jaw:").grid(row=row_idx, column=0, sticky="w", pady=2)
         ttk.Label(cumulative_frame, textvariable=self.cumulative_lj_degrees_var, width=8, anchor="e").grid(row=row_idx, column=1, sticky="e", pady=2)
         ttk.Label(cumulative_frame, text="°").grid(row=row_idx, column=2, sticky="w", pady=2)
         row_idx += 1
-
         ttk.Label(cumulative_frame, text="Right Jaw:").grid(row=row_idx, column=0, sticky="w", pady=2)
         ttk.Label(cumulative_frame, textvariable=self.cumulative_rj_degrees_var, width=8, anchor="e").grid(row=row_idx, column=1, sticky="e", pady=2)
         ttk.Label(cumulative_frame, text="°").grid(row=row_idx, column=2, sticky="w", pady=2)
         row_idx += 1
-
-        # ADDED ROLL DISPLAY
         ttk.Label(cumulative_frame, text="Roll:").grid(row=row_idx, column=0, sticky="w", pady=2)
         ttk.Label(cumulative_frame, textvariable=self.cumulative_roll_degrees_var, width=8, anchor="e").grid(row=row_idx, column=1, sticky="e", pady=2)
         ttk.Label(cumulative_frame, text="°").grid(row=row_idx, column=2, sticky="w", pady=2)
         row_idx += 1
-        
         ttk.Button(cumulative_frame, text="Reset Cumulative Display", command=self._reset_cumulative_degrees_display_action, width=25).grid(row=row_idx, column=0, columnspan=3, pady=10)
         
         positional_super_frame.columnconfigure(0, weight=1)
         positional_super_frame.columnconfigure(1, weight=1)
 
+
     def _create_output_area(self):
+        # ... (No changes) ...
         output_frame = ttk.LabelFrame(self.main_content_frame, text="Output Log", padding="5")
         output_frame.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
         self.main_content_frame.grid_rowconfigure(4, weight=1)
-        self.main_content_frame.grid_columnconfigure(0, weight=1) # Ensure main_content_frame's first col expands
-
-        self.output_text = tk.Text(output_frame, height=10, width=80) # Width might be less critical due to expansion
+        self.main_content_frame.grid_columnconfigure(0, weight=1)
+        self.output_text = tk.Text(output_frame, height=10, width=80)
         self.output_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         output_frame.grid_rowconfigure(0, weight=1)
         output_frame.grid_columnconfigure(0, weight=1)
@@ -254,144 +266,171 @@ class ElbowSimulatorGUI:
         self.output_text['yscrollcommand'] = scrollbar.set
 
     def log_message(self, message):
-        if hasattr(self, 'output_text') and self.output_text:
+        # ... (No changes) ...
+        if hasattr(self, 'output_text') and self.output_text and self.output_text.winfo_exists():
             self.output_text.insert(tk.END, str(message) + "\n")
             self.output_text.see(tk.END)
         else:
-            print(f"LOG (output_text not ready): {message}") # Fallback if called too early
+            print(f"LOG (output_text not ready): {message}")
 
-    # --- Serial Communication Callbacks ---
     def _update_connection_status_display(self, message, color, connected):
+        # ... (No changes) ...
         self.status_label.config(text=f"Status: {message}", foreground=color)
         self.connect_button.config(text="Disconnect" if connected else "Connect")
-        self.log_message(message) # Also log status changes to the main log
+        self.log_message(message)
 
-    def _handle_serial_data(self, response_data, data_type="received"): # data_type can be "sent" or "received"
-        # This is where you process incoming messages from Arduino
-        self.log_message(f"Arduino: {response_data}") # Generic log for now
-
+    def _handle_serial_data(self, response_data, data_type="received"):
+        # ... (No changes) ...
+        self.log_message(f"Arduino: {response_data}")
         if response_data.startswith("TEST_MOTOR_SELECTED:"):
             name = response_data.split(":", 1)[1]
-            self.selected_motor_for_test_mode = name # Update main GUI's tracking variable
+            self.selected_motor_for_test_mode = name
             if self.test_motors_window_instance and self.test_motors_window_instance.winfo_exists():
                 self.test_motors_window_instance.update_selected_motor_from_arduino(name)
-            # Log in test window as well if open
-            if self.test_motors_window_instance and self.test_motors_window_instance.winfo_exists():
-                 self.test_motors_window_instance.log_to_test_output(f"Arduino selected motor: {name}")
-            else: # Log to main if test window isn't open (e.g. after NEXT_MOTOR then EXIT_TEST quickly)
+                self.test_motors_window_instance.log_to_test_output(f"Arduino selected motor: {name}")
+            else:
                  self.log_message(f"(TestLog Echo) Arduino selected motor: {name}")
-
-
         elif response_data.startswith("VERBOSE_STATE:"):
             state = response_data.split(":")[1].strip()
             self.is_verbose_arduino_side = (state == "1")
-            self.verbose_button.config(text=f"Toggle Verbose ({'ON' if self.is_verbose_arduino_side else 'OFF'})")
-            self.log_message(f"Verbose mode {'ON' if self.is_verbose_arduino_side else 'OFF'}")
+            self.verbose_button.config(text=f"Toggle Arduino Verbose ({'ON' if self.is_verbose_arduino_side else 'OFF'})") # Updated text
+            self.log_message(f"Arduino Verbose mode {'ON' if self.is_verbose_arduino_side else 'OFF'}")
         else:
-            # If test motors window is open, echo general Arduino messages there too
             if self.test_motors_window_instance and self.test_motors_window_instance.winfo_exists():
                 if hasattr(self.test_motors_window_instance, 'log_to_test_output'):
                      self.test_motors_window_instance.log_to_test_output(f"Arduino: {response_data}")
 
     def _handle_serial_error(self, error_message):
+        # ... (No changes) ...
         messagebox.showerror("Serial Error", error_message, parent=self.root)
         self.log_message(f"ERROR: {error_message}")
 
-    # --- Button Action Methods (GUI Event Handlers) ---
     def _toggle_connection_action(self):
+        # ... (No changes) ...
         if not self.serial_handler.is_connected:
             port = self.port_entry.get()
             self.serial_handler.connect(port)
         else:
             self.serial_handler.disconnect()
 
-    def _get_current_step_size(self):
+    # RENAMED and MODIFIED: _get_slider_value (was _get_current_step_size)
+    def _get_slider_value(self):
+        """Gets the numerical value from the slider based on its current index."""
         try:
             selected_index = int(self.current_step_size_var.get())
             if 0 <= selected_index < len(config.STEP_SIZES):
                 return config.STEP_SIZES[selected_index]
-        except tk.TclError: pass # If var not fully initialized
-        return config.STEP_SIZES[config.DEFAULT_STEP_SIZE_INDEX] # Default
+        except tk.TclError: pass 
+        return config.STEP_SIZES[config.DEFAULT_STEP_SIZE_INDEX] 
 
-    def _update_step_size_display_label(self, event=None):
-        if not hasattr(self, 'step_size_display_label') or not self.step_size_display_label: return
-        current_val = self._get_current_step_size()
-        self.step_size_display_label.config(text=f"{current_val} steps")
-
-    def _direct_move_pitch_yaw_action(self, pitch_delta, yaw_delta):
-        if pitch_delta == 0 and yaw_delta == 0: return
+    # RENAMED and MODIFIED: _update_d_pad_mode_and_slider_label (was _update_step_size_display_label)
+    def _update_d_pad_mode_and_slider_label(self, event=None):
+        """Updates the D-Pad mode checkbutton text and the slider's increment display label."""
+        if not hasattr(self, 'd_pad_increment_display_label') or not self.d_pad_increment_display_label:
+            return
         
-        motor_steps = [0] * len(MotorIndex)
+        current_val = self._get_slider_value()
+        is_degree_mode = self.d_pad_degree_mode_var.get()
 
-        motor_steps[MotorIndex.EPD] = pitch_delta
-        motor_steps[MotorIndex.EPU] = -pitch_delta
-        motor_steps[MotorIndex.EYR] = yaw_delta
-        motor_steps[MotorIndex.EYL] = -yaw_delta
-
-        steps_str = ",".join(map(str, motor_steps))
-        cmd = f"MOVE_ALL_MOTORS:{steps_str}"
-        self.serial_handler.send_command(cmd)
-        self.log_message(f"Sent Direct Elbow: {cmd}")
-
-    def _direct_move_wrist_pitch_action(self, step_delta):
-        if step_delta == 0: return
-        motor_steps = [0] * len(MotorIndex)
-
-        motor_steps[MotorIndex.WPD] = step_delta
-        motor_steps[MotorIndex.WPU] = -step_delta
-
-        steps_str = ",".join(map(str, motor_steps))
-        cmd = f"MOVE_ALL_MOTORS:{steps_str}"
-        self.serial_handler.send_command(cmd)
-        self.log_message(f"Sent Direct Wrist Pitch: {cmd}")
-
-    def _direct_move_left_jaw_action(self, step_delta):
-        if step_delta == 0: return
-        motor_steps = [0] * len(MotorIndex)
-
-        motor_steps[MotorIndex.LJR] = step_delta
-        motor_steps[MotorIndex.LJL] = -step_delta
-
-        steps_str = ",".join(map(str, motor_steps))
-        cmd = f"MOVE_ALL_MOTORS:{steps_str}"
-        self.serial_handler.send_command(cmd)
-        self.log_message(f"Sent Direct Left Jaw: {cmd}")
-
-    def _direct_move_right_jaw_action(self, step_delta):
-        if step_delta == 0: return
-
-        motor_steps = [0] * len(MotorIndex)
-
-        motor_steps[MotorIndex.RJR] = step_delta
-        motor_steps[MotorIndex.RJL] = -step_delta
+        if is_degree_mode:
+            unit_label = "degrees"
+            self.d_pad_mode_button.config(text="D-Pad Mode: Degrees")
+        else:
+            unit_label = "steps"
+            self.d_pad_mode_button.config(text="D-Pad Mode: Steps")
         
-        steps_str = ",".join(map(str, motor_steps))
-        cmd = f"MOVE_ALL_MOTORS:{steps_str}"
-        self.serial_handler.send_command(cmd)
-        self.log_message(f"Sent Direct Right Jaw: {cmd}")
+        self.d_pad_increment_display_label.config(text=f"{current_val} {unit_label}")
 
+    # --- D-Pad Action Methods (MODIFIED to check mode) ---
+    def _d_pad_elbow_action(self, pitch_val, yaw_val):
+        """Handles Elbow D-Pad actions based on the current D-Pad control mode."""
+        if pitch_val == 0 and yaw_val == 0: return
 
-    def _toggle_verbose_action(self):
+        if not self.d_pad_degree_mode_var.get(): # Direct Step Mode
+            motor_steps = [0] * len(MotorIndex)
+            motor_steps[MotorIndex.EPD] = int(pitch_val) 
+            motor_steps[MotorIndex.EPU] = -int(pitch_val)
+            motor_steps[MotorIndex.EYR] = int(yaw_val)
+            motor_steps[MotorIndex.EYL] = -int(yaw_val)
+            steps_str = ",".join(map(str, motor_steps))
+            cmd = f"MOVE_ALL_MOTORS:{steps_str}"
+            self.serial_handler.send_command(cmd)
+            self.log_message(f"Sent D-Pad Step Elbow: Pitch {pitch_val}, Yaw {yaw_val} (Steps: {cmd})")
+        else: # Degree-Based Mode
+            joint_degree_deltas = {"EP": float(pitch_val), "EY": float(yaw_val)}
+            self.log_message(f"D-Pad Degree Elbow: Pitch {pitch_val}°, Yaw {yaw_val}°")
+            self._execute_degree_based_move(joint_degree_deltas)
+
+    def _d_pad_wrist_action(self, value):
+        """Handles Wrist D-Pad actions based on the current D-Pad control mode."""
+        if value == 0: return
+
+        if not self.d_pad_degree_mode_var.get(): # Direct Step Mode
+            motor_steps = [0] * len(MotorIndex)
+            motor_steps[MotorIndex.WPD] = int(value) 
+            motor_steps[MotorIndex.WPU] = -int(value)
+            steps_str = ",".join(map(str, motor_steps))
+            cmd = f"MOVE_ALL_MOTORS:{steps_str}"
+            self.serial_handler.send_command(cmd)
+            self.log_message(f"Sent D-Pad Step Wrist: {value} (Steps: {cmd})")
+        else: # Degree-Based Mode
+            joint_degree_deltas = {"WP": float(value)}
+            self.log_message(f"D-Pad Degree Wrist: {value}°")
+            self._execute_degree_based_move(joint_degree_deltas)
+
+    def _d_pad_left_jaw_action(self, value):
+        """Handles Left Jaw D-Pad actions based on the current D-Pad control mode."""
+        if value == 0: return
+        if not self.d_pad_degree_mode_var.get(): # Direct Step Mode
+            motor_steps = [0] * len(MotorIndex)
+            motor_steps[MotorIndex.LJR] = int(value) 
+            motor_steps[MotorIndex.LJL] = -int(value)
+            steps_str = ",".join(map(str, motor_steps))
+            cmd = f"MOVE_ALL_MOTORS:{steps_str}"
+            self.serial_handler.send_command(cmd)
+            self.log_message(f"Sent D-Pad Step Left Jaw: {value} (Steps: {cmd})")
+        else: # Degree-Based Mode
+            joint_degree_deltas = {"LJ": float(value)}
+            self.log_message(f"D-Pad Degree Left Jaw: {value}°")
+            self._execute_degree_based_move(joint_degree_deltas)
+
+    def _d_pad_right_jaw_action(self, value):
+        """Handles Right Jaw D-Pad actions based on the current D-Pad control mode."""
+        if value == 0: return
+        if not self.d_pad_degree_mode_var.get(): # Direct Step Mode
+            motor_steps = [0] * len(MotorIndex)
+            motor_steps[MotorIndex.RJR] = int(value) 
+            motor_steps[MotorIndex.RJL] = -int(value)
+            steps_str = ",".join(map(str, motor_steps))
+            cmd = f"MOVE_ALL_MOTORS:{steps_str}"
+            self.serial_handler.send_command(cmd)
+            self.log_message(f"Sent D-Pad Step Right Jaw: {value} (Steps: {cmd})")
+        else: # Degree-Based Mode
+            joint_degree_deltas = {"RJ": float(value)}
+            self.log_message(f"D-Pad Degree Right Jaw: {value}°")
+            self._execute_degree_based_move(joint_degree_deltas)
+
+    def _toggle_arduino_verbose_action(self): # Renamed for clarity
         self.serial_handler.send_command("TOGGLE_VERBOSE")
-        self.log_message("Sent: TOGGLE_VERBOSE")
-        # Actual button text updates on Arduino response (VERBOSE_STATE:)
+        self.log_message("Sent: TOGGLE_VERBOSE to Arduino")
 
     def _open_test_motors_window_action(self):
+        # ... (No changes) ...
         if self.test_motors_window_instance and self.test_motors_window_instance.winfo_exists():
             self.test_motors_window_instance.lift()
             return
         self.test_motors_window_instance = TestMotorsWindow(
-            self.root,
-            self.serial_handler,
-            self.selected_motor_for_test_mode,
-            self.log_message # Pass main log for messages like "Exited test mode"
+            self.root, self.serial_handler, self.selected_motor_for_test_mode, self.log_message
         )
 
     def on_test_motors_window_closed(self):
+        # ... (No changes) ...
         self.test_motors_window_instance = None
         self.log_message("Test Motors window closed by user.")
 
-    def _move_by_degrees_action(self):
+    # RENAMED: _dedicated_move_by_degrees_action for clarity
+    def _dedicated_move_by_degrees_action(self):
+        """Handles the 'Move Joints by Degrees' button press from dedicated input fields."""
         try:
             joint_degree_deltas = {
                 "EP": float(self.ep_degrees_input_var.get()),
@@ -401,89 +440,121 @@ class ElbowSimulatorGUI:
                 "RJ": float(self.rj_degrees_input_var.get()),
                 "ROLL": float(self.roll_degrees_input_var.get())
             }
+            # Reset input fields after getting values
+            self.ep_degrees_input_var.set("0.0")
+            self.ey_degrees_input_var.set("0.0")
+            self.wp_degrees_input_var.set("0.0")
+            self.lj_degrees_input_var.set("0.0")
+            self.rj_degrees_input_var.set("0.0")
+            self.roll_degrees_input_var.set("0.0")
         except ValueError:
             messagebox.showerror("Input Error", "Invalid degree value. Please enter numbers only.", parent=self.root)
             return
+        
+        self.log_message(f"Dedicated Degree Input: Deltas {joint_degree_deltas}")
+        self._execute_degree_based_move(joint_degree_deltas)
 
-        ep_deg = self.cumulative_ep_degrees_var.get()
-        ey_deg = self.cumulative_ey_degrees_var.get()   
-        wp_deg = self.cumulative_wp_degrees_var.get()
-        lj_deg = self.cumulative_lj_degrees_var.get()
-        rj_deg = self.cumulative_rj_degrees_var.get()
-        roll_deg = self.cumulative_roll_degrees_var.get()
+    # NEW HELPER METHOD: _execute_degree_based_move
+    def _execute_degree_based_move(self, joint_degree_deltas_input):
+        """
+        Core logic to calculate and send motor commands based on degree deltas.
+        joint_degree_deltas_input: A dictionary like {"EP": 10.0, "EY": -5.0, ...}
+                                   Only keys for joints to be moved need to be present.
+        """
+        # Create a full delta dictionary, defaulting non-specified joints to 0.0
+        all_joint_keys = ["EP", "EY", "WP", "LJ", "RJ", "ROLL"]
+        full_joint_degree_deltas = {key: 0.0 for key in all_joint_keys}
+        full_joint_degree_deltas.update(joint_degree_deltas_input)
 
-        ep_delta = float(self.ep_degrees_input_var.get())
-        ey_delta = float(self.ey_degrees_input_var.get())
-        wp_delta = float(self.wp_degrees_input_var.get())
-        lj_delta = float(self.lj_degrees_input_var.get())
-        rj_delta = float(self.rj_degrees_input_var.get())
-        roll_delta = float(self.roll_degrees_input_var.get())
-
-        joint_processors = {
-            "EP": (ep_deg, ep_delta, q1_pl.get_steps),  # Elbow Pitch
-            "EY": (ey_deg, ey_delta, q2_pl.get_steps),  # Elbow Yaw
-            "WP": (wp_deg, wp_delta, q3_pl.get_steps),  # Wrist Pitch
-            "LJ": (lj_deg, lj_delta, q4_pl.get_steps_L),  # Left Jaw
-            "RJ": (rj_deg, rj_delta, q4_pl.get_steps_R),   # Right Jaw
-            "ROLL": (roll_deg, roll_delta, roll.get_steps)  # Roll
+        # Current absolute positions (reference points for qN_pl calculations)
+        # These are the values that the qN_pl.get_steps(curr_theta, delta_theta) functions expect as curr_theta.
+        # Ensure these reference points match what your qN_pl files assume.
+        # If cumulative_vars store the deviation from these references, then add the reference here.
+        # If cumulative_vars *are* the absolute angles (e.g. 90 is home), use them directly.
+        # Based on your reset to 90.0 for EP-RJ and 0.0 for Roll, these are the absolute angles.
+        current_abs_positions = {
+            "EP": self.cumulative_ep_degrees_var.get(),
+            "EY": self.cumulative_ey_degrees_var.get(),
+            "WP": self.cumulative_wp_degrees_var.get(),
+            "LJ": self.cumulative_lj_degrees_var.get(),
+            "RJ": self.cumulative_rj_degrees_var.get(),
+            "ROLL": self.cumulative_roll_degrees_var.get()
         }
 
-        total_motor_steps = [0] * len(MotorIndex)  # Initialize total steps for all motors
+        joint_processors = {
+            "EP": (current_abs_positions["EP"], full_joint_degree_deltas["EP"], q1_pl.get_steps),
+            "EY": (current_abs_positions["EY"], full_joint_degree_deltas["EY"], q2_pl.get_steps),
+            "WP": (current_abs_positions["WP"], full_joint_degree_deltas["WP"], q3_pl.get_steps),
+            "LJ": (current_abs_positions["LJ"], full_joint_degree_deltas["LJ"], q4_pl.get_steps_L),
+            "RJ": (current_abs_positions["RJ"], full_joint_degree_deltas["RJ"], q4_pl.get_steps_R),
+            "ROLL": (current_abs_positions["ROLL"], full_joint_degree_deltas["ROLL"], roll.get_steps)
+        }
+
+        total_motor_steps = [0] * len(MotorIndex)
 
         for joint_name, (curr_theta, delta_theta, get_steps_function) in joint_processors.items():
-            if delta_theta != 0:
+            if delta_theta != 0: # Process only if there's a delta for this joint
                 try:
-                    self.log_message(f"Calculating steps for {joint_name} with delta: {delta_theta}")
+                    self.log_message(f"Calculating for {joint_name}: current_abs={curr_theta:.2f}°, delta={delta_theta:.2f}°")
                     joint_specific_motor_steps = get_steps_function(curr_theta, delta_theta)
-                    for idx in MotorIndex:
-                        total_motor_steps[idx] += joint_specific_motor_steps[idx]
-                    self.log_message(f"Steps from {joint_name}: {joint_specific_motor_steps}")
+                    for motor_idx_enum in MotorIndex: # Iterate using enum members
+                        # Ensure joint_specific_motor_steps has an entry for every motor
+                        # (even if 0), as per the qN_pl structure.
+                        total_motor_steps[motor_idx_enum.value] += joint_specific_motor_steps[motor_idx_enum.value]
+                    self.log_message(f"  Steps from {joint_name}: {joint_specific_motor_steps}")
                 except Exception as e:
-                    self.log_message(f"Error calling {get_steps_function.__name__} for {joint_name}: {e}")
+                    self.log_message(f"  Error calling {get_steps_function.__name__} for {joint_name}: {e}")
+                    import traceback
+                    self.log_message(traceback.format_exc())
         
         final_integer_steps = [int(round(s)) for s in total_motor_steps]
-        self.log_message(f"Final calculated steps for all motors: {final_integer_steps}")
+        self.log_message(f"Final Combined Steps: {final_integer_steps}")
                
         steps_str = ",".join(map(str, final_integer_steps))
         cmd = f"MOVE_ALL_MOTORS:{steps_str}"
 
         if self.serial_handler.send_command(cmd):
-            self.log_message(f"Sent Positional: {cmd}")
-            # Update cumulative degrees display AFTER command is successfully sent
-            self.cumulative_ep_degrees_var.set(round(self.cumulative_ep_degrees_var.get() + joint_degree_deltas["EP"], 2))
-            self.cumulative_ey_degrees_var.set(round(self.cumulative_ey_degrees_var.get() + joint_degree_deltas["EY"], 2))
-            self.cumulative_wp_degrees_var.set(round(self.cumulative_wp_degrees_var.get() + joint_degree_deltas["WP"], 2))
-            self.cumulative_lj_degrees_var.set(round(self.cumulative_lj_degrees_var.get() + joint_degree_deltas["LJ"], 2))
-            self.cumulative_rj_degrees_var.set(round(self.cumulative_rj_degrees_var.get() + joint_degree_deltas["RJ"], 2))
-            self.cumulative_roll_degrees_var.set(round(self.cumulative_roll_degrees_var.get() + joint_degree_deltas["ROLL"], 2))
-
+            self.log_message(f"Sent Degree-Based Move: {cmd}")
+            # Update cumulative degrees display based on the deltas that were processed
+            if full_joint_degree_deltas["EP"] != 0:
+                self.cumulative_ep_degrees_var.set(round(current_abs_positions["EP"] + full_joint_degree_deltas["EP"], 2))
+            if full_joint_degree_deltas["EY"] != 0:
+                self.cumulative_ey_degrees_var.set(round(current_abs_positions["EY"] + full_joint_degree_deltas["EY"], 2))
+            if full_joint_degree_deltas["WP"] != 0:
+                self.cumulative_wp_degrees_var.set(round(current_abs_positions["WP"] + full_joint_degree_deltas["WP"], 2))
+            if full_joint_degree_deltas["LJ"] != 0:
+                self.cumulative_lj_degrees_var.set(round(current_abs_positions["LJ"] + full_joint_degree_deltas["LJ"], 2))
+            if full_joint_degree_deltas["RJ"] != 0:
+                self.cumulative_rj_degrees_var.set(round(current_abs_positions["RJ"] + full_joint_degree_deltas["RJ"], 2))
+            if full_joint_degree_deltas["ROLL"] != 0:
+                self.cumulative_roll_degrees_var.set(round(current_abs_positions["ROLL"] + full_joint_degree_deltas["ROLL"], 2))
         else:
-            self.log_message("Failed to send positional command.")
+            self.log_message("Failed to send degree-based command.")
 
-
-    def _reset_cumulative_degrees_display_action(self, from_test_mode=False):
+    def _reset_cumulative_degrees_display_action(self, from_test_mode=False, is_initial_setup=False): # Added is_initial_setup flag
+        # These are the absolute reference/home positions for calculations.
         self.cumulative_ep_degrees_var.set(90.0)
         self.cumulative_ey_degrees_var.set(90.0)
         self.cumulative_wp_degrees_var.set(90.0)
         self.cumulative_lj_degrees_var.set(90.0)
         self.cumulative_rj_degrees_var.set(90.0)
-        self.cumulative_roll_degrees_var.set(0.0)
-        if not from_test_mode: # Don't show popup if reset was triggered by "Set Home" in test window
-            messagebox.showinfo("Reset", "Cumulative degree display has been reset to zero.", parent=self.root)
-        self.log_message("Cumulative degree display reset.")
+        self.cumulative_roll_degrees_var.set(0.0) # Roll's reference is 0
+        
+        if not from_test_mode and not is_initial_setup:
+            messagebox.showinfo("Reset", "Cumulative degree display has been reset to reference positions.", parent=self.root)
+        if not is_initial_setup: # Don't log during init before log widget is ready
+            self.log_message("Cumulative degree display reset to reference positions.")
 
     def _reset_cumulative_degrees_display_from_test_mode(self):
-        # Called by TestMotorsWindow after "SET_HOME"
         self._reset_cumulative_degrees_display_action(from_test_mode=True)
-        self.log_message("Cumulative degrees reset due to 'Set Home' in Test Motors mode.")
-
+        self.log_message("Cumulative degrees display reset due to 'Set Home' in Test Motors mode.")
 
     def cleanup_on_exit(self):
+        # ... (No changes) ...
         self.log_message("Application exiting. Cleaning up...")
         if self.test_motors_window_instance and self.test_motors_window_instance.winfo_exists():
-            # Try to gracefully exit test mode on Arduino if window is still open
             self.serial_handler.send_command("EXIT_TEST")
             self.log_message("Sent EXIT_TEST on close.")
-            # self.test_motors_window_instance.destroy() # It will be destroyed with root
         self.serial_handler.cleanup()
         self.log_message("Serial handler cleaned up.")
+
