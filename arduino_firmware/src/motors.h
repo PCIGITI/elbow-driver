@@ -13,12 +13,12 @@
  * @brief Motor indices for easier referencing
  */
 enum MotorIndex {
-    EPU, EPD,  // Elbow Pitch Up/Down
-    EYR, EYL,  // Elbow Yaw Right/Left
-    WPU, WPD,  // Wrist Pitch Up/Down
-    RJL, LJR,  // Jaw cables
-    LJL, RJR,
-    ROLL       // Roll motor
+    IDX_EPU, IDX_EPD,  // Elbow Pitch Up/Down
+    IDX_EYR, IDX_EYL,  // Elbow Yaw Right/Left
+    IDX_WPU, IDX_WPD,  // Wrist Pitch Up/Down
+    IDX_RJL, IDX_LJR,  // Jaw cables
+    IDX_LJL, IDX_RJR,
+    IDX_ROLL       // Roll motor
 };
 
 /**
@@ -37,10 +37,10 @@ enum MotorIndex {
 #define PIN_EYR_DIR  52
 
 // Wrist Pitch Motor Pins
-#define PIN_WPD_STEP 29
-#define PIN_WPD_DIR  28
-#define PIN_WPU_STEP 35
-#define PIN_WPU_DIR  34
+#define PIN_WPU_STEP 29
+#define PIN_WPU_DIR  28
+#define PIN_WPD_STEP 35
+#define PIN_WPD_DIR  34
 
 // Jaw Motor Pins
 #define PIN_RJL_STEP 47
@@ -63,12 +63,21 @@ const float TENSION_SPEED_COARSE = 600.0;
 const float TENSION_SPEED_FINE = 50.0;
 
 // Conversion constants
-#define DEG_TO_RAD(x) ((x) * PI / 180.0)
 #define MM_TO_STEPS(x) ((int)((x/0.5)*200))
 
 // Motor instances declarations
-extern AccelStepper EPU, EPD, EYL, EYR, WPD, WPU;
-extern AccelStepper RJL, LJR, LJL, RJR, ROLL;
+// Remove enum value conflicts by renaming variables with a suffix _motor
+extern AccelStepper EPU_motor;
+extern AccelStepper EPD_motor;
+extern AccelStepper EYL_motor;
+extern AccelStepper EYR_motor;
+extern AccelStepper WPD_motor;
+extern AccelStepper WPU_motor;
+extern AccelStepper RJL_motor;
+extern AccelStepper LJR_motor;
+extern AccelStepper LJL_motor;
+extern AccelStepper RJR_motor;
+extern AccelStepper ROLL_motor;
 
 // Array of all motors
 extern AccelStepper* motors[NUM_MOTORS];

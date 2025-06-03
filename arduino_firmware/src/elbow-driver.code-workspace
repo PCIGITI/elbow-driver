@@ -2,10 +2,6 @@
 	"folders": [
 		{
 			"path": "../.."
-		},
-		{
-			"name": "arduino_firmware",
-			"path": ".."
 		}
 	],
 	"settings": {}

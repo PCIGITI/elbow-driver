@@ -1,12 +1,12 @@
 #include <AccelStepper.h>
 #include "motors.h"
 
-#define DEG_TO_RAD(x) ((x) * PI / 180.0)
-#define MM_TO_STEPS(x) ((int)((x/0.5)*200))  // For non-EP/EY motors: 0.5mm per rev, 200 steps per rev
 
 bool verbose_output = true;
 bool test_mode_active = false;
-AccelStepper* current_test_motor = &EPU;
+AccelStepper* current_test_motor = nullptr; // Will update to motors[0] below
+AccelStepper* handleSelectMotor(String name);
+
 
 void setup() {  
     Serial.begin(9600);
@@ -16,17 +16,11 @@ void setup() {
 int handleTestMotorCommand(const String& command) {
     if (command == "START_TEST_MOTORS") {
         test_mode_active = true;
-        current_test_motor = &EPU;
-        Serial.print("TEST_MOTOR_SELECTED:EPU");
+        current_test_motor = handleSelectMotor("EPU");
     } 
     else if (command.startsWith("SELECT_MOTOR:")) {
         String name = command.substring(13);
-        AccelStepper* motor = getMotorByName(name);
-        if (motor != nullptr) {
-            current_test_motor = motor;
-            Serial.print("TEST_MOTOR_SELECTED:");
-            Serial.println(name);
-        } 
+        current_test_motor = handleSelectMotor(name);
     } 
     else if (command == "FINE_TENSION") {
         tensionMotor(current_test_motor, false);
@@ -65,6 +59,17 @@ int handleTestMotorCommand(const String& command) {
         return 0;
     }
     return 1;
+}
+
+AccelStepper* handleSelectMotor(String name){
+    AccelStepper* motor = getMotorByName(name);
+    if (motor != nullptr) {
+        Serial.print("TEST_MOTOR_SELECTED:");
+        Serial.println(name);
+        return motor;
+    } 
+    Serial.print("ERROR: ATTEMPTED TO SELECT NULL MOTOR");
+    return nullptr;
 }
 
 void handleMoveAllMotors(String cmd) {

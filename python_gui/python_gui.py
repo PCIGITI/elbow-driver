@@ -40,11 +40,11 @@ class ElbowSimulatorGUI:
         self.selected_motor = "EPD"
 
         self.motor_names_flat = [
-            "RJR", "LJL", "LJR", "RJL", "WPU", "WPD",
+            "RJR", "RJL", "LJR", "LJL", "WPD", "WPU",
             "EYR", "EYL", "EPD", "EPU"
         ]
         self.motor_names_grouped = [
-            ["RJR", "LJL"], ["LJR", "RJL"], ["WPU", "WPD"],
+            ["RJR", "RJL"], ["LJR", "LJL"], ["WPD", "WPU"],
             ["EYR", "EYL"], ["EPD", "EPU"]
         ]
 
@@ -287,14 +287,20 @@ class ElbowSimulatorGUI:
         output_frame.grid_rowconfigure(0, weight=1); output_frame.grid_columnconfigure(0, weight=1)
         scrollbar = ttk.Scrollbar(output_frame, orient=tk.VERTICAL, command=self.output_text.yview)
         scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
-        self.output_text['yscrollcommand'] = scrollbar.set
-
+        self.output_text['yscrollcommand'] = scrollbar.set    
+        
     def toggle_connection(self):
-        # ... (same as before) ...
         if not self.is_connected:
             try:
                 port = self.port_entry.get()
-                self.serial_port = serial.Serial(port, 9600, timeout=1)
+                self.serial_port = serial.Serial(
+                    port=port,
+                    baudrate=9600,
+                    bytesize=serial.EIGHTBITS,
+                    parity=serial.PARITY_NONE,
+                    stopbits=serial.STOPBITS_ONE,
+                    timeout=1
+                )
                 time.sleep(2) # Allow Arduino to reset
                 self.is_connected = True
                 self.status_label.config(text=f"Status: Connected ({port})", foreground="green")
@@ -310,32 +316,29 @@ class ElbowSimulatorGUI:
             self.status_label.config(text="Status: Disconnected", foreground="black")
             self.connect_button.config(text="Connect")
             self.log_message("Disconnected")
-
-
     def send_command(self, command):
-        # ... (same as before) ...
         if self.is_connected and self.serial_port and self.serial_port.is_open:
             try:
-                self.serial_port.write(f"{command}\n".encode('utf-8'))
+                # Add \r\n explicitly for consistent line endings and use ascii encoding
+                self.serial_port.write(f"{command}\r\n".encode('ascii'))
+                self.serial_port.flush()  # Ensure the command is sent immediately
                 self.log_message(f"Sent: {command}")
             except serial.SerialException as e:
                 self.log_message(f"Error sending command: {e}. Lost connection.")
-                # Schedule toggle_connection to run in the main thread
                 self.root.after(0, self.toggle_connection)
-            except Exception as e: # Other exceptions like port not open
+            except Exception as e:
                 self.log_message(f"Unexpected error sending command: {e}")
-                if self.is_connected: # If we thought we were connected, attempt to fix state
+                if self.is_connected:
                     self.root.after(0, self.toggle_connection)
         elif not self.is_connected:
             self.log_message("Error: Not connected. Cannot send command.")
-
-
     def monitor_serial(self):
         while True:
             if self.is_connected and self.serial_port and self.serial_port.is_open:
                 try:
                     if self.serial_port.in_waiting > 0:
-                        response = self.serial_port.readline().decode('utf-8', errors='replace').strip()
+                        # Use 'ascii' instead of 'utf-8' and ignore errors
+                        response = self.serial_port.readline().decode('ascii', 'ignore').strip()
                         if response:
                             self.root.after(0, self.process_serial_response, response)
                 except serial.SerialException: # Port has been closed or disconnected
@@ -369,31 +372,46 @@ class ElbowSimulatorGUI:
         if hasattr(self, 'output_text') and self.output_text:
             self.output_text.insert(tk.END, message + "\n")
             self.output_text.see(tk.END)
-
-
     def move_pitch_yaw(self, pitch_step_delta, yaw_step_delta): # sign indicates direction
-        # ... (same as before, sends steps) ...
-        actual_pitch_steps = int(pitch_step_delta)
-        actual_yaw_steps = int(yaw_step_delta)
-
-        if actual_pitch_steps != 0 and actual_yaw_steps != 0:
-            self.send_command(f"MOVE_EP_EY_REL:{actual_pitch_steps},{actual_yaw_steps}")
-        elif actual_pitch_steps != 0:
-            self.send_command(f"MOVE_EP_REL:{actual_pitch_steps}")
-        elif actual_yaw_steps != 0:
-            self.send_command(f"MOVE_EY_REL:{actual_yaw_steps}")
+        motor_steps = [0] * len(MotorIndex)  # Initialize all steps to 0
+        motor_steps[MotorIndex.EPU] = int(pitch_step_delta)     # EPU moves positive with positive pitch
+        motor_steps[MotorIndex.EPD] = -int(pitch_step_delta)    # EPD moves opposite to EPU
+        motor_steps[MotorIndex.EYR] = int(yaw_step_delta)       # EYR moves positive with positive yaw
+        motor_steps[MotorIndex.EYL] = -int(yaw_step_delta)      # EYL moves opposite to EYR
+        
+        steps_str = ",".join(str(steps) for steps in motor_steps)
+        if pitch_step_delta != 0 or yaw_step_delta != 0:
+            self.send_command(f"MOVE_ALL_MOTORS:{steps_str}")
 
     def move_wrist_pitch(self, step_delta):
+        motor_steps = [0] * len(MotorIndex)  # Initialize all steps to 0
         steps = int(step_delta)
-        if steps != 0: self.send_command(f"MOVE_WP_REL:{steps}")
+        motor_steps[MotorIndex.WPD] = -steps       # WPD moves positive with positive pitch
+        motor_steps[MotorIndex.WPU] = steps      # WPU moves opposite to WPD
+        
+        steps_str = ",".join(str(steps) for steps in motor_steps)
+        if step_delta != 0:
+            self.send_command(f"MOVE_ALL_MOTORS:{steps_str}")
 
     def move_left_jaw(self, step_delta):
+        motor_steps = [0] * len(MotorIndex)  # Initialize all steps to 0
         steps = int(step_delta)
-        if steps != 0: self.send_command(f"MOVE_LJ_REL:{steps}")
+        motor_steps[MotorIndex.LJL] = steps       # LJL moves positive with positive jaw
+        motor_steps[MotorIndex.LJR] = -steps      # LJR moves opposite to LJL
+        
+        steps_str = ",".join(str(steps) for steps in motor_steps)
+        if step_delta != 0:
+            self.send_command(f"MOVE_ALL_MOTORS:{steps_str}")
 
     def move_right_jaw(self, step_delta):
+        motor_steps = [0] * len(MotorIndex)  # Initialize all steps to 0
         steps = int(step_delta)
-        if steps != 0: self.send_command(f"MOVE_RJ_REL:{steps}")
+        motor_steps[MotorIndex.RJR] = steps       # RJR moves positive with positive jaw
+        motor_steps[MotorIndex.RJL] = -steps      # RJL moves opposite to RJR
+        
+        steps_str = ",".join(str(steps) for steps in motor_steps)
+        if step_delta != 0:
+            self.send_command(f"MOVE_ALL_MOTORS:{steps_str}")
 
     def set_verbose(self, state):
         """Set verbose mode. State parameter is kept for button functionality."""
@@ -732,23 +750,207 @@ class ElbowSimulatorGUI:
 
     # --- Placeholder Degree-to-Step Conversion Functions ---
     # YOU NEED TO IMPLEMENT THE ACTUAL LOGIC HERE
-    # ... (get_steps_elbow_pitch, get_steps_elbow_yaw, etc. - same as before) ...
+
+    def get_aux_pl_ep(self, theta_deg):
+        ax = 0.75
+        ay = 0.6
+        q1_rad = math.radians(theta_deg)
+
+        bx = 0.48
+        by = -3.3
+
+        ax_rotated = ax * np.cos(q1_rad) - ay * np.sin(q1_rad)
+        ay_rotated = ax * np.sin(q1_rad) + ay * np.cos(q1_rad)
+
+        ##approximates wrist pl as a straight line :3
+        len = np.sqrt((bx - ax_rotated)**2 + (by - ay_rotated)**2)
+
+        return len
+
+
+
+    def get_actuating_pl_ep(self, theta_deg):
+        # A = cable entrance at the side
+        ax_at_90_deg = -2.5 
+        ay_at_90_deg = 1.83
+
+        # B = left cable entrance
+        bx = -1.43
+        by = -3.3
+
+        # Base coordinates of point A (at 0-degree rotation of q2)
+        x_base_A = ay_at_90_deg  
+        y_base_A = -ax_at_90_deg 
+
+        # --- Setup for Point C and Point D ---
+        # Coordinates of point C when its rotation angle q2 is 90 degrees.
+        cx_at_90_deg = 1.75
+        cy_at_90_deg = 0.25
+
+        # Coordinates of the fixed point D
+        dx = 1.43
+        dy = -3.3 # Note: Same y-coordinate as point B, x-coordinate is different.
+
+        # Constant h for the 'longer cable'
+        h_constant = 1.7
+
+        # Base coordinates of point C (at 0-degree rotation of q2)
+        x_base_C = cy_at_90_deg   # So, x_base_C = 0.25
+        y_base_C = -cx_at_90_deg  # So, y_base_C = -1.75
+
+        # --- Generate rotation angles for q2 ---
+        # Angles q2 from 90 to 130 degrees. Using 100 points for a smooth curve.
+        q1_rad = math.radians(theta_deg)
+
+        # --- Calculate A's rotated coordinates and distance to B ---
+        ax_rotated = x_base_A * np.cos(q1_rad) - y_base_A * np.sin(q1_rad)
+        ay_rotated = x_base_A * np.sin(q1_rad) + y_base_A * np.cos(q1_rad)
+        shorter = np.sqrt((bx - ax_rotated)**2 + (by - ay_rotated)**2)
+
+        # --- Calculate C's rotated coordinates, distance to D, and 'longer cable' length ---
+        cx_rotated = x_base_C * np.cos(q1_rad) - y_base_C * np.sin(q1_rad)
+        cy_rotated = x_base_C * np.sin(q1_rad) + y_base_C * np.cos(q1_rad)
+        
+        # Verify coordinates of C at q2 = 90 degrees
+        # print(f"Calculated C at q2=90: ({cx_rotated[0]:.2f}, {cy_rotated[0]:.2f})") # Should be (1.75, 0.25)
+
+        longer = np.sqrt((dx - cx_rotated)**2 + (dy - cy_rotated)**2)
+        longer = h_constant + longer
+
+        print(f"Calculated EP lengths for theta {theta_deg} degrees: shorter={shorter:.2f}, longer={longer:.2f}")  # Debug output
+
+        return shorter, longer
+
+    
 
     def get_steps_elbow_pitch(self, degrees_ep):
-        # REMEMBER: RETURN FORMAT IS [EPU, EPD, EYR, EYL, WPD, WPU, RJL, LJR, LJL, RJR, ROLL]
-        steps_ep_calc = int(degrees_ep * 100) # Assuming 100 steps per degree for EP
-        motor_steps = [0] * len(MotorIndex)
-        motor_steps[MotorIndex.EPU] = steps_ep_calc
-        motor_steps[MotorIndex.EPD] = -steps_ep_calc
+        curr_theta = 90+self.cumulative_ep_degrees_var.get()
+        target_theta = curr_theta + degrees_ep
+
+        if curr_theta >= 90 and curr_theta < 130:  #then pitch down will be shorter!!
+            curr_epd, curr_epu = self.get_actuating_pl_ep(curr_theta)
+        elif curr_theta > 50 and curr_theta < 130:  # then jaw right will be shorter !!
+            curr_epu, curr_epd = self.get_actuating_pl_ep(180-curr_theta)
+        else:
+            print("INVALID CURRENT THETA FOR ELBOW PITCH CALCULATION")
+            return [0] * len(MotorIndex)  # Return zero steps if theta is out of range
+
+        if target_theta >= 90 and target_theta < 130:  # then jaw left will be shorter !!
+            target_epd, target_epu = self.get_actuating_pl_ep(target_theta)
+        elif target_theta > 50 and target_theta < 130: # then jaw right will be shorter !!
+            target_epu, target_epd = self.get_actuating_pl_ep(180-target_theta)
+        else:  # then jaw right will be shorter !!
+            print("INVALID TARGET THETA FOR ELBOW PITCH CALCULATION")
+            return [0] * len(MotorIndex)  # Return zero steps if theta is out of range
+        
+
+        print(f"calculated delta epu: {target_epu - curr_epu}, delta epd: {target_epd - curr_epd} for theta {target_theta} from {curr_theta}")  # Debug output
+        delta_epu = target_epu - curr_epu
+        delta_epd = target_epd - curr_epd
+
+        steps_epu = -int(delta_epu*(200/0.3))
+        steps_epd = -int(delta_epd*(200/0.3))
+
+        motor_steps = [0] * len(MotorIndex)  
+        motor_steps[MotorIndex.EPU] = steps_epu
+        motor_steps[MotorIndex.EPD] = steps_epd
+
+        #get aux steps
+        curr_aux_down_right = self.get_aux_pl_ep(180-curr_theta) # Corrected
+        curr_aux_up_left = self.get_aux_pl_ep(curr_theta)
+        target_aux_down_right = self.get_aux_pl_ep(180-target_theta) # Corrected
+        target_aux_up_left = self.get_aux_pl_ep(target_theta) # Corrected
+
+
+
+        delta_aux_UL = target_aux_up_left-curr_aux_up_left
+        delta_aux_DR = target_aux_down_right-curr_aux_down_right
+        steps_aux_UL = -int(delta_aux_UL*(200/0.3))
+        steps_aux_DR = -int(delta_aux_DR*(200/0.3))
+        motor_steps[MotorIndex.LJL] = steps_aux_DR 
+        motor_steps[MotorIndex.RJL] = steps_aux_UL
+        motor_steps[MotorIndex.WPU] = steps_aux_UL
+        motor_steps[MotorIndex.WPD] = steps_aux_DR
+        motor_steps[MotorIndex.RJR] = steps_aux_UL
+        motor_steps[MotorIndex.LJR] = steps_aux_DR 
+        
+
         return motor_steps
+    
+    def get_aux_pl_ey(self, theta_deg):
+        rc = 1.56 / 2
+        rs = 0.5
+        l_1 = math.hypot(1.4, 1.9) # math.sqrt(1.4**2 + 1.9**2)
+
+        if theta_deg > 90:
+            theta = math.radians(180 - theta_deg)
+        else:
+            theta = math.radians(theta_deg)
+        
+        x_a = (rc / 2) * (math.cos(theta - 0.872)) - 1.4
+        y_a = (rc / 2) * (math.sin(theta - 0.872)) + 1.9
+        
+        h = math.hypot(x_a, y_a)
+        len_line = math.hypot(h, rs)
+
+        beta = math.atan(1.9 / -1.4) - math.atan(y_a / x_a)
+        
+        lambda_angle = math.asin((math.sin(beta) * l_1) / rc)
+        
+        alpha = math.asin(rs / len_line) - lambda_angle
+        
+        arc_length = alpha * rs
+        
+        shorter = arc_length + len_line + 0.1947
+        longer = 1.1 * (1.5708 - theta) + 2.5099
+
+        return shorter, longer
+
 
     def get_steps_elbow_yaw(self, degrees_ey):
-        # REMEMBER: RETURN FORMAT IS [EPU, EPD, EYR, EYL, WPD, WPU, RJL, LJR, LJL, RJR, ROLL]
-        steps_ey_calc = int(degrees_ey * 100) # Assuming 100 steps per degree for EY
+
+        EY_effective_radius = 1.4 ##mm
+        rad_ey = math.radians(degrees_ey)
+        mm_ey_calc = rad_ey * EY_effective_radius
+        steps_ey = int(mm_ey_calc*(200/0.3))
+
+
         motor_steps = [0] * len(MotorIndex)
-        motor_steps[MotorIndex.EYR] = steps_ey_calc
-        motor_steps[MotorIndex.EYL] = -steps_ey_calc
+        motor_steps[MotorIndex.EYR] = -steps_ey
+        motor_steps[MotorIndex.EYL] = steps_ey
+
+        #get aux steps: wrist pitch is unbothered. when elbow yaw ++ (goes left). jaw left cables shorten, jaw right cables lengthen. 
+        #only valid within 32 degrees of rom
+        
+        curr_theta = 90+self.cumulative_ey_degrees_var.get()
+        target_theta = curr_theta + degrees_ey
+
+        # Call the method using self.
+        if curr_theta >= 90:  # then jaw left will be shorter !!
+            curr_jl, curr_jr = self.get_aux_pl_ey(curr_theta) # Corrected
+        else:  # then jaw right will be shorter !!
+            curr_jr, curr_jl = self.get_aux_pl_ey(curr_theta) # Corrected
+
+        if target_theta >= 90:  # then jaw left will be shorter !!
+            # BUG: You were using curr_theta here again, should be target_theta
+            target_jl, target_jr = self.get_aux_pl_ey(target_theta) # Corrected & fixed bug
+        else:  # then jaw right will be shorter !!
+            # BUG: You were using curr_theta here again, should be target_theta
+            target_jr, target_jl = self.get_aux_pl_ey(target_theta) # Corrected & fixed bug
+    
+        delta_jl = target_jl - curr_jl
+        delta_jr = target_jr - curr_jr
+
+        steps_jl = -int(delta_jl*(200/0.3))
+        steps_jr = -int(delta_jr*(200/0.3))
+
+        motor_steps[MotorIndex.RJL] = steps_jl
+        motor_steps[MotorIndex.LJR] = steps_jr
+        motor_steps[MotorIndex.LJL] = steps_jl
+        motor_steps[MotorIndex.RJR] = steps_jr
+
         return motor_steps
+
     
     def get_steps_wrist_pitch(self, degrees_wp):
         ##primary cables:

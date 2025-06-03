@@ -1,26 +1,26 @@
 #include "motors.h"
 
 // Motor instances definitions
-AccelStepper EPU(AccelStepper::DRIVER, PIN_EPU_STEP, PIN_EPU_DIR);
-AccelStepper EPD(AccelStepper::DRIVER, PIN_EPD_STEP, PIN_EPD_DIR);
-AccelStepper EYL(AccelStepper::DRIVER, PIN_EYL_STEP, PIN_EYL_DIR);
-AccelStepper EYR(AccelStepper::DRIVER, PIN_EYR_STEP, PIN_EYR_DIR);
-AccelStepper WPD(AccelStepper::DRIVER, PIN_WPD_STEP, PIN_WPD_DIR);
-AccelStepper WPU(AccelStepper::DRIVER, PIN_WPU_STEP, PIN_WPU_DIR);
-AccelStepper RJL(AccelStepper::DRIVER, PIN_RJL_STEP, PIN_RJL_DIR);
-AccelStepper LJR(AccelStepper::DRIVER, PIN_LJR_STEP, PIN_LJR_DIR);
-AccelStepper LJL(AccelStepper::DRIVER, PIN_LJL_STEP, PIN_LJL_DIR);
-AccelStepper RJR(AccelStepper::DRIVER, PIN_RJR_STEP, PIN_RJR_DIR);
-AccelStepper ROLL(AccelStepper::DRIVER, PIN_ROLL_STEP, PIN_ROLL_DIR);
+AccelStepper EPU_motor(AccelStepper::DRIVER, PIN_EPU_STEP, PIN_EPU_DIR);
+AccelStepper EPD_motor(AccelStepper::DRIVER, PIN_EPD_STEP, PIN_EPD_DIR);
+AccelStepper EYL_motor(AccelStepper::DRIVER, PIN_EYL_STEP, PIN_EYL_DIR);
+AccelStepper EYR_motor(AccelStepper::DRIVER, PIN_EYR_STEP, PIN_EYR_DIR);
+AccelStepper WPD_motor(AccelStepper::DRIVER, PIN_WPD_STEP, PIN_WPD_DIR);
+AccelStepper WPU_motor(AccelStepper::DRIVER, PIN_WPU_STEP, PIN_WPU_DIR);
+AccelStepper RJL_motor(AccelStepper::DRIVER, PIN_RJL_STEP, PIN_RJL_DIR);
+AccelStepper LJR_motor(AccelStepper::DRIVER, PIN_LJR_STEP, PIN_LJR_DIR);
+AccelStepper LJL_motor(AccelStepper::DRIVER, PIN_LJL_STEP, PIN_LJL_DIR);
+AccelStepper RJR_motor(AccelStepper::DRIVER, PIN_RJR_STEP, PIN_RJR_DIR);
+AccelStepper ROLL_motor(AccelStepper::DRIVER, PIN_ROLL_STEP, PIN_ROLL_DIR);
 
 // Motor array definition using enum order
 AccelStepper* motors[NUM_MOTORS] = {
-    &EPU, &EPD,  // Elbow Pitch
-    &EYR, &EYL,  // Elbow Yaw
-    &WPU, &WPD,  // Wrist Pitch
-    &RJL, &LJR,  // Jaw cables
-    &LJL, &RJR,  // More jaw cables
-    &ROLL        // Roll motor
+    &EPU_motor, &EPD_motor,
+    &EYR_motor, &EYL_motor, // Corrected (ensure this order matches your MotorIndex enum and MOTOR_NAMES)
+    &WPU_motor, &WPD_motor, // Corrected
+    &RJL_motor, &LJR_motor, // Corrected
+    &LJL_motor, &RJR_motor, // Corrected
+    &ROLL_motor             // Corrected
 };
 
 // Lookup table for motor names
@@ -63,7 +63,7 @@ void tensionMotor(AccelStepper* motor, bool coarse) {
     
     motor->setMaxSpeed(currentMaxSpeed);
     motor->setAcceleration(currentAccel);
-    motor->setSpeed(500);
+    motor->setSpeed(0);
     Serial.println("Tensioning stopped");
 }
 
@@ -87,7 +87,7 @@ void detensionMotor(AccelStepper* motor) {
     
     motor->setMaxSpeed(currentMaxSpeed);
     motor->setAcceleration(currentAccel);
-    motor->setSpeed(500);
+    motor->setSpeed(0);
     Serial.println("Detensioning stopped");
 }
 
