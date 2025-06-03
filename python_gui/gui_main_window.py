@@ -4,7 +4,7 @@ from PIL import Image, ImageTk
 import config # For constants, MotorIndex
 from config import MotorIndex
 from test_motors_gui import TestMotorsWindow # The Toplevel window
-import q1_pl, q2_pl, q3_pl, q4_pl # Joint processors for step calculations
+import q1_pl, q2_pl, q3_pl, q4_pl, roll # Joint processors for step calculations
 
 # motor_control_logic.py will be instantiated in main.py and passed here
 # serial_handler.py will be instantiated in main.py and passed here
@@ -37,16 +37,16 @@ class ElbowSimulatorGUI:
         self.wp_degrees_input_var = tk.StringVar(value="0.0")
         self.lj_degrees_input_var = tk.StringVar(value="0.0")
         self.rj_degrees_input_var = tk.StringVar(value="0.0")
-        #self.roll_degrees_input_var = tk.StringVar(value="0.0")
+        self.roll_degrees_input_var = tk.StringVar(value="0.0")
 
 
         # Positional Control Cumulative Display
-        self.cumulative_ep_degrees_var = tk.DoubleVar(value=0.0)
-        self.cumulative_ey_degrees_var = tk.DoubleVar(value=0.0)
-        self.cumulative_wp_degrees_var = tk.DoubleVar(value=0.0)
-        self.cumulative_lj_degrees_var = tk.DoubleVar(value=0.0)
-        self.cumulative_rj_degrees_var = tk.DoubleVar(value=0.0)
-        #self.cumulative_roll_degrees_var = tk.DoubleVar(value=0.0)
+        self.cumulative_ep_degrees_var = tk.DoubleVar(value=90.0)
+        self.cumulative_ey_degrees_var = tk.DoubleVar(value=90.0)
+        self.cumulative_wp_degrees_var = tk.DoubleVar(value=90.0)
+        self.cumulative_lj_degrees_var = tk.DoubleVar(value=90.0)
+        self.cumulative_rj_degrees_var = tk.DoubleVar(value=90.0)
+        self.cumulative_roll_degrees_var = tk.DoubleVar(value=0.0)
 
         self._setup_main_layout()
         self._create_widgets()
@@ -160,59 +160,81 @@ class ElbowSimulatorGUI:
     def _create_positional_control_frame_widgets(self, parent_frame):
         positional_super_frame = ttk.LabelFrame(parent_frame, text="Positional Control (Degrees)", padding="10")
         positional_super_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
-        parent_frame.grid_rowconfigure(3, weight=0) # Not expanding much
+        parent_frame.grid_rowconfigure(3, weight=0)
 
-        # Input section
         input_frame = ttk.LabelFrame(positional_super_frame, text="Move by Degrees", padding="10")
         input_frame.grid(row=0, column=0, padx=5, pady=5, sticky="ns")
-        # EP, EY, WP, LJ, RJ Entries and Labels...
-        ttk.Label(input_frame, text="Elbow Pitch (°):").grid(row=0, column=0, sticky="w", pady=2)
+
+        row_idx = 0
+        ttk.Label(input_frame, text="Elbow Pitch (°):").grid(row=row_idx, column=0, sticky="w", pady=2)
         self.ep_degrees_entry = ttk.Entry(input_frame, textvariable=self.ep_degrees_input_var, width=10)
-        self.ep_degrees_entry.grid(row=0, column=1, pady=2)
-        # ... ( EY, WP, LJ, RJ entries similar to EP ) ...
-        ttk.Label(input_frame, text="Elbow Yaw (°):").grid(row=1, column=0, sticky="w", pady=2)
+        self.ep_degrees_entry.grid(row=row_idx, column=1, pady=2)
+        row_idx += 1
+
+        ttk.Label(input_frame, text="Elbow Yaw (°):").grid(row=row_idx, column=0, sticky="w", pady=2)
         self.ey_degrees_entry = ttk.Entry(input_frame, textvariable=self.ey_degrees_input_var, width=10)
-        self.ey_degrees_entry.grid(row=1, column=1, pady=2)
+        self.ey_degrees_entry.grid(row=row_idx, column=1, pady=2)
+        row_idx += 1
 
-        ttk.Label(input_frame, text="Wrist Pitch (°):").grid(row=2, column=0, sticky="w", pady=2)
+        ttk.Label(input_frame, text="Wrist Pitch (°):").grid(row=row_idx, column=0, sticky="w", pady=2)
         self.wp_degrees_entry = ttk.Entry(input_frame, textvariable=self.wp_degrees_input_var, width=10)
-        self.wp_degrees_entry.grid(row=2, column=1, pady=2)
+        self.wp_degrees_entry.grid(row=row_idx, column=1, pady=2)
+        row_idx += 1
 
-        ttk.Label(input_frame, text="Left Jaw (°):").grid(row=3, column=0, sticky="w", pady=2)
+        ttk.Label(input_frame, text="Left Jaw (°):").grid(row=row_idx, column=0, sticky="w", pady=2)
         self.lj_degrees_entry = ttk.Entry(input_frame, textvariable=self.lj_degrees_input_var, width=10)
-        self.lj_degrees_entry.grid(row=3, column=1, pady=2)
+        self.lj_degrees_entry.grid(row=row_idx, column=1, pady=2)
+        row_idx += 1
 
-        ttk.Label(input_frame, text="Right Jaw (°):").grid(row=4, column=0, sticky="w", pady=2)
+        ttk.Label(input_frame, text="Right Jaw (°):").grid(row=row_idx, column=0, sticky="w", pady=2)
         self.rj_degrees_entry = ttk.Entry(input_frame, textvariable=self.rj_degrees_input_var, width=10)
-        self.rj_degrees_entry.grid(row=4, column=1, pady=2)
+        self.rj_degrees_entry.grid(row=row_idx, column=1, pady=2)
+        row_idx += 1
 
-        ttk.Button(input_frame, text="Move Joints by Degrees", command=self._move_by_degrees_action, width=25).grid(row=5, column=0, columnspan=2, pady=10)
+        # ADDED ROLL INPUT
+        ttk.Label(input_frame, text="Roll (°):").grid(row=row_idx, column=0, sticky="w", pady=2)
+        self.roll_degrees_entry = ttk.Entry(input_frame, textvariable=self.roll_degrees_input_var, width=10)
+        self.roll_degrees_entry.grid(row=row_idx, column=1, pady=2)
+        row_idx += 1
 
-        # Cumulative display section
+        ttk.Button(input_frame, text="Move Joints by Degrees", command=self._move_by_degrees_action, width=25).grid(row=row_idx, column=0, columnspan=2, pady=10)
+
         cumulative_frame = ttk.LabelFrame(positional_super_frame, text="Cumulative Joint Position (Degrees from Home)", padding="10")
         cumulative_frame.grid(row=0, column=1, padx=5, pady=5, sticky="ns")
-        # EP, EY, WP, LJ, RJ Labels for cumulative display...
-        ttk.Label(cumulative_frame, text="Elbow Pitch:").grid(row=0, column=0, sticky="w", pady=2)
-        ttk.Label(cumulative_frame, textvariable=self.cumulative_ep_degrees_var, width=8, anchor="e").grid(row=0, column=1, sticky="e", pady=2)
-        ttk.Label(cumulative_frame, text="°").grid(row=0, column=2, sticky="w", pady=2)
-        # ... (EY, WP, LJ, RJ cumulative labels similar to EP) ...
-        ttk.Label(cumulative_frame, text="Elbow Yaw:").grid(row=1, column=0, sticky="w", pady=2)
-        ttk.Label(cumulative_frame, textvariable=self.cumulative_ey_degrees_var, width=8, anchor="e").grid(row=1, column=1, sticky="e", pady=2)
-        ttk.Label(cumulative_frame, text="°").grid(row=1, column=2, sticky="w", pady=2)
 
-        ttk.Label(cumulative_frame, text="Wrist Pitch:").grid(row=2, column=0, sticky="w", pady=2)
-        ttk.Label(cumulative_frame, textvariable=self.cumulative_wp_degrees_var, width=8, anchor="e").grid(row=2, column=1, sticky="e", pady=2)
-        ttk.Label(cumulative_frame, text="°").grid(row=2, column=2, sticky="w", pady=2)
+        row_idx = 0
+        ttk.Label(cumulative_frame, text="Elbow Pitch:").grid(row=row_idx, column=0, sticky="w", pady=2)
+        ttk.Label(cumulative_frame, textvariable=self.cumulative_ep_degrees_var, width=8, anchor="e").grid(row=row_idx, column=1, sticky="e", pady=2)
+        ttk.Label(cumulative_frame, text="°").grid(row=row_idx, column=2, sticky="w", pady=2)
+        row_idx += 1
 
-        ttk.Label(cumulative_frame, text="Left Jaw:").grid(row=3, column=0, sticky="w", pady=2)
-        ttk.Label(cumulative_frame, textvariable=self.cumulative_lj_degrees_var, width=8, anchor="e").grid(row=3, column=1, sticky="e", pady=2)
-        ttk.Label(cumulative_frame, text="°").grid(row=3, column=2, sticky="w", pady=2)
+        ttk.Label(cumulative_frame, text="Elbow Yaw:").grid(row=row_idx, column=0, sticky="w", pady=2)
+        ttk.Label(cumulative_frame, textvariable=self.cumulative_ey_degrees_var, width=8, anchor="e").grid(row=row_idx, column=1, sticky="e", pady=2)
+        ttk.Label(cumulative_frame, text="°").grid(row=row_idx, column=2, sticky="w", pady=2)
+        row_idx += 1
 
-        ttk.Label(cumulative_frame, text="Right Jaw:").grid(row=4, column=0, sticky="w", pady=2)
-        ttk.Label(cumulative_frame, textvariable=self.cumulative_rj_degrees_var, width=8, anchor="e").grid(row=4, column=1, sticky="e", pady=2)
-        ttk.Label(cumulative_frame, text="°").grid(row=4, column=2, sticky="w", pady=2)
+        ttk.Label(cumulative_frame, text="Wrist Pitch:").grid(row=row_idx, column=0, sticky="w", pady=2)
+        ttk.Label(cumulative_frame, textvariable=self.cumulative_wp_degrees_var, width=8, anchor="e").grid(row=row_idx, column=1, sticky="e", pady=2)
+        ttk.Label(cumulative_frame, text="°").grid(row=row_idx, column=2, sticky="w", pady=2)
+        row_idx += 1
+
+        ttk.Label(cumulative_frame, text="Left Jaw:").grid(row=row_idx, column=0, sticky="w", pady=2)
+        ttk.Label(cumulative_frame, textvariable=self.cumulative_lj_degrees_var, width=8, anchor="e").grid(row=row_idx, column=1, sticky="e", pady=2)
+        ttk.Label(cumulative_frame, text="°").grid(row=row_idx, column=2, sticky="w", pady=2)
+        row_idx += 1
+
+        ttk.Label(cumulative_frame, text="Right Jaw:").grid(row=row_idx, column=0, sticky="w", pady=2)
+        ttk.Label(cumulative_frame, textvariable=self.cumulative_rj_degrees_var, width=8, anchor="e").grid(row=row_idx, column=1, sticky="e", pady=2)
+        ttk.Label(cumulative_frame, text="°").grid(row=row_idx, column=2, sticky="w", pady=2)
+        row_idx += 1
+
+        # ADDED ROLL DISPLAY
+        ttk.Label(cumulative_frame, text="Roll:").grid(row=row_idx, column=0, sticky="w", pady=2)
+        ttk.Label(cumulative_frame, textvariable=self.cumulative_roll_degrees_var, width=8, anchor="e").grid(row=row_idx, column=1, sticky="e", pady=2)
+        ttk.Label(cumulative_frame, text="°").grid(row=row_idx, column=2, sticky="w", pady=2)
+        row_idx += 1
         
-        ttk.Button(cumulative_frame, text="Reset Cumulative Display", command=self._reset_cumulative_degrees_display_action, width=25).grid(row=5, column=0, columnspan=3, pady=10)
+        ttk.Button(cumulative_frame, text="Reset Cumulative Display", command=self._reset_cumulative_degrees_display_action, width=25).grid(row=row_idx, column=0, columnspan=3, pady=10)
         
         positional_super_frame.columnconfigure(0, weight=1)
         positional_super_frame.columnconfigure(1, weight=1)
@@ -377,6 +399,7 @@ class ElbowSimulatorGUI:
                 "WP": float(self.wp_degrees_input_var.get()),
                 "LJ": float(self.lj_degrees_input_var.get()),
                 "RJ": float(self.rj_degrees_input_var.get()),
+                "ROLL": float(self.roll_degrees_input_var.get())
             }
         except ValueError:
             messagebox.showerror("Input Error", "Invalid degree value. Please enter numbers only.", parent=self.root)
@@ -387,20 +410,22 @@ class ElbowSimulatorGUI:
         wp_deg = self.cumulative_wp_degrees_var.get()
         lj_deg = self.cumulative_lj_degrees_var.get()
         rj_deg = self.cumulative_rj_degrees_var.get()
+        roll_deg = self.cumulative_roll_degrees_var.get()
 
         ep_delta = float(self.ep_degrees_input_var.get())
         ey_delta = float(self.ey_degrees_input_var.get())
         wp_delta = float(self.wp_degrees_input_var.get())
         lj_delta = float(self.lj_degrees_input_var.get())
         rj_delta = float(self.rj_degrees_input_var.get())
+        roll_delta = float(self.roll_degrees_input_var.get())
 
-        
         joint_processors = {
             "EP": (ep_deg, ep_delta, q1_pl.get_steps),  # Elbow Pitch
             "EY": (ey_deg, ey_delta, q2_pl.get_steps),  # Elbow Yaw
             "WP": (wp_deg, wp_delta, q3_pl.get_steps),  # Wrist Pitch
             "LJ": (lj_deg, lj_delta, q4_pl.get_steps_L),  # Left Jaw
             "RJ": (rj_deg, rj_delta, q4_pl.get_steps_R),   # Right Jaw
+            "ROLL": (roll_deg, roll_delta, roll.get_steps)  # Roll
         }
 
         total_motor_steps = [0] * len(MotorIndex)  # Initialize total steps for all motors
@@ -430,6 +455,8 @@ class ElbowSimulatorGUI:
             self.cumulative_wp_degrees_var.set(round(self.cumulative_wp_degrees_var.get() + joint_degree_deltas["WP"], 2))
             self.cumulative_lj_degrees_var.set(round(self.cumulative_lj_degrees_var.get() + joint_degree_deltas["LJ"], 2))
             self.cumulative_rj_degrees_var.set(round(self.cumulative_rj_degrees_var.get() + joint_degree_deltas["RJ"], 2))
+            self.cumulative_roll_degrees_var.set(round(self.cumulative_roll_degrees_var.get() + joint_degree_deltas["ROLL"], 2))
+
         else:
             self.log_message("Failed to send positional command.")
 
@@ -440,6 +467,7 @@ class ElbowSimulatorGUI:
         self.cumulative_wp_degrees_var.set(90.0)
         self.cumulative_lj_degrees_var.set(90.0)
         self.cumulative_rj_degrees_var.set(90.0)
+        self.cumulative_roll_degrees_var.set(0.0)
         if not from_test_mode: # Don't show popup if reset was triggered by "Set Home" in test window
             messagebox.showinfo("Reset", "Cumulative degree display has been reset to zero.", parent=self.root)
         self.log_message("Cumulative degree display reset.")
