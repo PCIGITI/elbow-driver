@@ -4,8 +4,10 @@
 
 bool verbose_output = true;
 bool test_mode_active = false;
+int dir = 1; 
 AccelStepper* current_test_motor = nullptr; // Will update to motors[0] below
 AccelStepper* handleSelectMotor(String name);
+void stepTest(int jointNum);
 
 
 void setup() {  
@@ -70,6 +72,63 @@ AccelStepper* handleSelectMotor(String name){
     } 
     Serial.print("ERROR: ATTEMPTED TO SELECT NULL MOTOR");
     return nullptr;
+}
+
+void stepTest(int jointNum){
+    dir = dir * -1;
+    int motor_pair[2] = {0, 0}; // Declare motor_pair as an array of 2 integers
+
+    if (jointNum == 4) {
+        //motor_pair[0] = 6;
+        //motor_pair[1] = 9;
+        motor_pair[0] = 7;
+        motor_pair[1] = 8;
+
+    } else if (jointNum == 3) {
+        motor_pair[0] = 4;
+        motor_pair[1] = 5; // Make sure there's a semicolon here
+    }
+    else if (jointNum == 2) {
+        motor_pair[0] = 2;
+        motor_pair[1] = 3; // Make sure there's a semicolon here
+    }
+    else if (jointNum == 1) {
+        motor_pair[0] = 0;
+        motor_pair[1] = 1; // Make sure there's a semicolon here
+    }
+        long startPosLJL = motors[motor_pair[0]]->currentPosition();
+        long startPosLJR = motors[motor_pair[1]]->currentPosition();
+
+        motors[motor_pair[0]]->setSpeed(dir*30);
+        motors[motor_pair[1]]->setSpeed(dir*-30);
+
+        Serial.println("START_TEST_Q_RUNNING");
+
+        unsigned long startTime = millis();
+
+        while (Serial.available() == 0) {
+            motors[motor_pair[0]]->runSpeed();
+            motors[motor_pair[1]]->runSpeed();
+            delay(1);
+        }
+
+        unsigned long endTime = millis();
+        long endPosLJL = motors[motor_pair[0]]->currentPosition();
+        long endPosLJR = motors[motor_pair[1]]->currentPosition();
+
+        motors[motor_pair[0]]->setSpeed(0);
+        motors[motor_pair[1]]->setSpeed(0);
+
+        long stepsLJL = endPosLJL - startPosLJL;
+        long stepsLJR = endPosLJR - startPosLJR;
+        unsigned long duration = endTime - startTime;
+
+        Serial.print("TEST_Q_DONE;duration_ms:");
+        Serial.print(duration);
+        Serial.print(";steps_LJL:");
+        Serial.print(stepsLJL);
+        Serial.print(";steps_LJR:");
+        Serial.println(stepsLJR);    
 }
 
 void handleMoveAllMotors(String cmd) {
@@ -148,6 +207,9 @@ void loop() {
             verbose_output = !verbose_output;
             Serial.print("VERBOSE_STATE:");
             Serial.println(verbose_output ? "1" : "0");
+        }
+        else if (command.startsWith("START_TEST_Q")){
+            stepTest(1);
         }
         else {
             Serial.println("ERROR: Unknown command");

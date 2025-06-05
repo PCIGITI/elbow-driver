@@ -15,6 +15,8 @@ r1_c = 0.89   # Radius of circle C1 in mm
 c1x_c = 1.6   # x-coordinate of center of circle C1 in mm
 c1y_c = -1.5  # y-coordinate of center of circle C1 in mm
 r2_c = 1.0   # Radius of circle C2 in mm (assumed to be 0.0 for simplification)
+dir_offset = cf.Q3_DR_COMP
+
 
 WP_EFFECTIVE_RADIUS_MM = 1.7
 
@@ -142,12 +144,28 @@ def _calculate_pl_value(q2_deg_val):
             
         return pl_res
 
-def get_steps(curr_theta, delta_theta):
+def get_steps(curr_theta, delta_theta, latest_dir):
         motor_steps = [0] * len(cf.MotorIndex)
+        if delta_theta == 0:
+            return motor_steps, latest_dir
         ##primary cables:
         mm_wp = math.radians(delta_theta)*1.7
         steps_wp = int(mm_wp*cf.STEPS_TO_MM_LS)
         
+        if (latest_dir == 0 or latest_dir*delta_theta < 0 and cf.DIR_COMP):
+            ###latest_dir and delta_theta are not the same direction/sign
+            ###have to add compensation and swap direction
+            comp = math.copysign(dir_offset, steps_wp)
+            if(latest_dir == 0):
+                 comp = comp/2
+            steps_wp += comp
+            latest_dir = delta_theta
+            print(f"Added {comp} steps due to a change in direction! new latest dir: {latest_dir}")
+        else:
+
+            print(f"latest_dir didnt change or dir_comp is off: latest_dir = {latest_dir} delta theta = {delta_theta} and dr comp = {cf.DIR_COMP}")
+            print("oopsies")
+
         ##auxiliary cables: 
         target_theta = curr_theta + delta_theta
 
@@ -179,4 +197,4 @@ def get_steps(curr_theta, delta_theta):
         motor_steps[cf.MotorIndex.LJR] = steps_lj
         motor_steps[cf.MotorIndex.LJL] = steps_lj
         motor_steps[cf.MotorIndex.RJR] = steps_rj
-        return motor_steps
+        return motor_steps, latest_dir

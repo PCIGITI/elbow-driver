@@ -21,8 +21,6 @@ def main_app():
     # Add other preferred themes if desired
 
     # Initialize components
-    # Pass None for motor_controller if you want a GUI-only mode for testing UI
-    # without full motor logic.
     serial_comms = SerialHandler() # Callbacks will be set by GUI
 
     app = ElbowSimulatorGUI(root, serial_handler=serial_comms)

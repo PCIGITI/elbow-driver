@@ -42,10 +42,17 @@ SERIAL_STOPBITS = serial.STOPBITS_ONE
 SERIAL_TIMEOUT = 1
 SERIAL_CONNECT_DELAY = 2 # Time to wait for Arduino reset
 
-
-
 # --- CONVERSION FACTORS ---
 STEPS_TO_MM_LS = 200 / 0.3 # (steps_per_rev / mm_per_rev)
+
+# --- DIRECTION CHANGE FACTORS (steps)
+
+DIR_COMP = True
+Q1_DR_COMP = 125 
+Q2_DR_COMP = 103.58
+Q3_DR_COMP = 132.3
+Q4_L_DR_COMP = 271
+Q4_R_DR_COMP = 558
 
 # --- UI ---
 APP_TITLE = "Elbow Control Simulator"

@@ -5,6 +5,9 @@ import math
 import numpy as np 
 import config as cf
 from config import MotorIndex, STEPS_TO_MM_LS
+import matplotlib.pyplot as plt
+
+dir_offset = cf.Q1_DR_COMP
 
 def get_aux_pl(theta_deg):
     ax = 0.75
@@ -24,6 +27,7 @@ def get_aux_pl(theta_deg):
 
 def get_pl(theta_deg):
 
+    true_theta_deg = theta_deg
     if theta_deg < 90:
         theta_deg = 180-theta_deg
     # A = cable entrance at the side
@@ -75,14 +79,17 @@ def get_pl(theta_deg):
 
     print(f"Calculated EP lengths for theta {theta_deg} degrees: shorter={shorter:.2f}, longer={longer:.2f}")  # Debug output
 
-    if theta_deg >= 90:  #then pitch down will be shorter!!
+    if true_theta_deg >= 90:  #then pitch down will be shorter!!
         epd, epu = shorter, longer  
     else:
         epu, epd = shorter, longer  
 
     return epd, epu
 
-def get_steps(curr_theta, delta_theta):
+def get_steps(curr_theta, delta_theta, latest_dir):
+    motor_steps = [0] * len(MotorIndex)  
+    if delta_theta == 0:
+        return motor_steps, latest_dir
     target_theta = curr_theta + delta_theta
 
     curr_epd, curr_epu = get_pl(curr_theta)
@@ -96,9 +103,24 @@ def get_steps(curr_theta, delta_theta):
     steps_epu = -int(delta_epu*(STEPS_TO_MM_LS))
     steps_epd = -int(delta_epd*(STEPS_TO_MM_LS))
 
+    if (latest_dir == 0 or latest_dir*delta_theta < 0 and cf.DIR_COMP):
+        ###latest_dir and delta_theta are not the same direction/sign
+        ###have to add compensation and swap direction
+        epu_comp = math.copysign(dir_offset, steps_epu)
+        epd_comp = math.copysign(dir_offset, steps_epd)
+        if(latest_dir == 0):
+            epd_comp = epd_comp/2  
+            epu_comp = epu_comp/2      
+        print(f"Added {epd_comp} steps due to a change in direction! new latest dir: {delta_theta} last dir: {latest_dir}")
+        latest_dir = delta_theta
+    else:
+
+        print(f"latest_dir didnt change or dir_comp is off: latest_dir = {latest_dir} delta theta = {delta_theta} and dr comp = {cf.DIR_COMP}")
+        print("oopsies")
+
     motor_steps = [0] * len(MotorIndex)  
-    motor_steps[MotorIndex.EPU] = steps_epu
-    motor_steps[MotorIndex.EPD] = steps_epd
+    motor_steps[MotorIndex.EPU] = steps_epu+epu_comp
+    motor_steps[MotorIndex.EPD] = steps_epd+epd_comp
 
     #get aux steps
     curr_aux_down_right = get_aux_pl(180-curr_theta) 
@@ -118,4 +140,45 @@ def get_steps(curr_theta, delta_theta):
     motor_steps[MotorIndex.RJR] = steps_aux_UL
     motor_steps[MotorIndex.LJR] = steps_aux_DR 
     
-    return motor_steps
+    return motor_steps, latest_dir
+
+
+def plot_epu_epd_vs_q1():
+    q1_range = np.linspace(0, 180, 181)
+    epd_list = []
+    epu_list = []
+    for theta in q1_range:
+        epd, epu = get_pl(theta)
+        epd_list.append(epd)
+        epu_list.append(epu)
+    plt.figure(figsize=(8, 5))
+    plt.plot(q1_range, epd_list, label='EPD Length')
+    plt.plot(q1_range, epu_list, label='EPU Length')
+    plt.xlabel('q1 (degrees)')
+    plt.ylabel('Cable Length (units)')
+    plt.title('EPD and EPU Lengths vs q1')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig("python_gui/epu_epd_lengths_vs_q1.png")
+    plt.show()
+
+
+def plot_aux_vs_q1():
+    q1_range = np.linspace(0, 180, 181)
+    aux_up_left = []
+    aux_down_right = []
+    for theta in q1_range:
+        aux_up_left.append(get_aux_pl(theta))
+        aux_down_right.append(get_aux_pl(180 - theta))
+    plt.figure(figsize=(8, 5))
+    plt.plot(q1_range, aux_up_left, label='Aux Up Left')
+    plt.plot(q1_range, aux_down_right, label='Aux Down Right')
+    plt.xlabel('q1 (degrees)')
+    plt.ylabel('Aux Cable Length (units)')
+    plt.title('Aux Cable Lengths vs q1')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig("python_gui/aux_cable_lengths_vs_q1.png")
+    plt.show()
+
+
