@@ -579,7 +579,7 @@ class ElbowSimulatorGUI:
 
         joint_processors = { #
             "EP": (current_abs_positions["EP"], full_joint_degree_deltas["EP"], q1_pl.get_steps, self.latest_dir["EP"]), #
-            "EY": (current_abs_positions["EY"], full_joint_degree_deltas["EY"], q1_pl.get_steps, self.latest_dir["EY"]), #
+            "EY": (current_abs_positions["EY"], full_joint_degree_deltas["EY"], q2_pl.get_steps, self.latest_dir["EY"]), #
             "WP": (current_abs_positions["WP"], full_joint_degree_deltas["WP"], q3_pl.get_steps, self.latest_dir["WP"]), #
             "LJ": (current_abs_positions["LJ"], full_joint_degree_deltas["LJ"], q4_pl.get_steps_L, self.latest_dir["LJ"]), #
             "RJ": (current_abs_positions["RJ"], full_joint_degree_deltas["RJ"], q4_pl.get_steps_R, self.latest_dir["RJ"]), #

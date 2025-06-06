@@ -102,6 +102,8 @@ def get_steps(curr_theta, delta_theta, latest_dir):
 
     steps_epu = -int(delta_epu*(STEPS_TO_MM_LS))
     steps_epd = -int(delta_epd*(STEPS_TO_MM_LS))
+    epd_comp = 0
+    epu_comp = 0
 
     if (latest_dir == 0 or latest_dir*delta_theta < 0 and cf.DIR_COMP):
         ###latest_dir and delta_theta are not the same direction/sign

@@ -122,7 +122,7 @@ def get_steps(curr_theta, delta_theta, latest_dir):
 
     if(curr_theta + delta_theta > 140 or curr_theta + delta_theta < 40):
         print("ERROR: Elbow yaw angle out of range (40 to 140 degrees). Error thrown with delta_theta: ", delta_theta)
-        return motor_steps
+        return motor_steps, latest_dir
     
 
     if (latest_dir == 0 or latest_dir*delta_theta < 0 and cf.DIR_COMP):
