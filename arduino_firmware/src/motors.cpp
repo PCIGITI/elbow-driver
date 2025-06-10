@@ -41,7 +41,7 @@ void initializeMotors() {
     }
 }
 
-void tensionMotor(AccelStepper* motor, bool coarse) {
+/*void tensionMotor(AccelStepper* motor, bool coarse) {
     float tensionSpeed = coarse ? TENSION_SPEED_COARSE : TENSION_SPEED_FINE;
     Serial.println(coarse ? "Coarse tensioning selected" : "Fine tensioning selected");
     Serial.println("Tensioning motor... Press any key to stop");
@@ -89,7 +89,7 @@ void detensionMotor(AccelStepper* motor) {
     motor->setAcceleration(currentAccel);
     motor->setSpeed(0);
     Serial.println("Detensioning stopped");
-}
+}*/
 
 AccelStepper* getMotorByName(const String& name) {
     for (int i = 0; i < NUM_MOTORS; i++) {

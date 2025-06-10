@@ -25,32 +25,32 @@ enum MotorIndex {
  * @brief Pin definitions for all stepper motors
  */
 // Elbow Pitch Motor Pins
-#define PIN_EPU_STEP 41
-#define PIN_EPU_DIR  40
+#define PIN_EPU_STEP 35
+#define PIN_EPU_DIR  34
 #define PIN_EPD_STEP 49
 #define PIN_EPD_DIR  48
 
 // Elbow Yaw Motor Pins
-#define PIN_EYL_STEP 39
-#define PIN_EYL_DIR  38
+#define PIN_EYL_STEP 43
+#define PIN_EYL_DIR  42
 #define PIN_EYR_STEP 53
 #define PIN_EYR_DIR  52
 
 // Wrist Pitch Motor Pins
 #define PIN_WPU_STEP 29
 #define PIN_WPU_DIR  28
-#define PIN_WPD_STEP 35
-#define PIN_WPD_DIR  34
+#define PIN_WPD_STEP 47
+#define PIN_WPD_DIR  46
 
 // Jaw Motor Pins
-#define PIN_RJL_STEP 47
-#define PIN_RJL_DIR  46
+#define PIN_RJL_STEP 39
+#define PIN_RJL_DIR  38
 #define PIN_LJR_STEP 51
 #define PIN_LJR_DIR  50
 #define PIN_LJL_STEP 45
 #define PIN_LJL_DIR  44
-#define PIN_RJR_STEP 43
-#define PIN_RJR_DIR  42
+#define PIN_RJR_STEP 41
+#define PIN_RJR_DIR  40
 
 // Roll Motor Pins
 #define PIN_ROLL_STEP 37
@@ -58,7 +58,7 @@ enum MotorIndex {
 
 // Motor parameters
 const float DEFAULT_MAX_SPEED = 700.0;
-const float DEFAULT_ACCELERATION = 1000000.0;
+const float DEFAULT_ACCELERATION = 2000.0;
 const float TENSION_SPEED_COARSE = 600.0;
 const float TENSION_SPEED_FINE = 50.0;
 
