@@ -39,6 +39,9 @@ void initializeMotors() {
         motors[i]->setCurrentPosition(0);
         motors[i]->setMaxSpeed(DEFAULT_MAX_SPEED);
     }
+    for (int i = 0; i < NUM_MOTORS; i++) {
+            motors[i]->stop();
+        }
 }
 
 /*void tensionMotor(AccelStepper* motor, bool coarse) {
