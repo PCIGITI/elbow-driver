@@ -8,8 +8,8 @@ class MotorIndex(IntEnum):
     EPD = 1
     EYR = 2
     EYL = 3
-    WPD = 4
-    WPU = 5
+    WPU = 4
+    WPD = 5
     RJL = 6
     LJR = 7
     LJL = 8
