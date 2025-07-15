@@ -425,8 +425,8 @@ class ElbowSimulatorGUI:
             motor_steps = [0] * len(MotorIndex) #
             motor_steps[MotorIndex.EPD] = int(pitch_val)  # Based on image: UP arrow leads to negative pitch_val
             motor_steps[MotorIndex.EPU] = -int(pitch_val) #
-            motor_steps[MotorIndex.EYR] = int(yaw_val)    # Based on image: LEFT arrow leads to positive yaw_val
-            motor_steps[MotorIndex.EYL] = -int(yaw_val) #
+            motor_steps[MotorIndex.EYR] = -int(yaw_val)    # Based on image: LEFT arrow leads to positive yaw_val
+            motor_steps[MotorIndex.EYL] = int(yaw_val) #
             steps_str = ",".join(map(str, motor_steps)) #
             cmd = f"MOVE_ALL_MOTORS:{steps_str}" #
             self.serial_handler.send_command(cmd) #
