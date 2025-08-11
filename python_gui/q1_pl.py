@@ -20,8 +20,6 @@ def get_jaw_pl(delta_theta):
     return delta_s
 
 def get_wrist_pl(delta_theta):
-
-
     ###THIS IS A SIMPLIFIED VERSION THAT HOLDS TRUE IF THETA BETWEEN THE BOUNDARY ANGLE AND THE BOUNDARY ANGLE + 90 DEG
     ##IMPLEMENTING FOR INITIAL TESTING ON JUNE 20
     r2 = 1.5
@@ -30,12 +28,13 @@ def get_wrist_pl(delta_theta):
     return delta_s
 
 def get_steps(curr_theta, delta_theta, latest_dir):
+    print(curr_theta)    
     motor_steps = [0] * len(MotorIndex)  
     if delta_theta == 0:
         return motor_steps, latest_dir
     
     mm_q1 = math.radians(delta_theta)*radius
-    steps_q1 = int(mm_q1*cf.STEPS_TO_MM_LS)
+    steps_q1 = int(mm_q1*cf.STEPS_TO_MM_CAPSTAN)
 
     target_theta = curr_theta + delta_theta
     
