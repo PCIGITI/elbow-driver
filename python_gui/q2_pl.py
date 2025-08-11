@@ -12,8 +12,6 @@ from config import MotorIndex, STEPS_TO_MM_LS
 import matplotlib.pyplot as plt
 
 dir_offset = cf.Q2_DR_COMP
-
-
 EY_effective_radius = 1.3 ##mm
 
 def get_jaw_pl(delta_theta):
@@ -24,15 +22,14 @@ def get_jaw_pl(delta_theta):
 
 
 def get_steps(curr_theta, delta_theta, latest_dir):
-
-    
     motor_steps = [0] * len(cf.MotorIndex)  
     if delta_theta == 0:
         return motor_steps, latest_dir
     #curr theta is in degrees between 0 and 180
 
-    delta_ey = math.radians(delta_theta) * EY_effective_radius
-    steps_ey = int(delta_ey*(cf.STEPS_TO_MM_LS))
+    delta_ey = math.radians(delta_theta)*EY_effective_radius
+    print("calculated required path length change to be:", delta_ey)
+    steps_ey = int(delta_ey*(cf.STEPS_TO_MM_CAPSTAN))
 
     if (latest_dir == 0 or latest_dir*delta_theta < 0 and cf.DIR_COMP):
         ###latest_dir and delta_theta are not the same direction/sign

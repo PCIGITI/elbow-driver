@@ -29,14 +29,15 @@ def get_wrist_pl(delta_theta):
 
 def get_steps(curr_theta, delta_theta, latest_dir):
     print(curr_theta)    
+
+
     motor_steps = [0] * len(MotorIndex)  
     if delta_theta == 0:
         return motor_steps, latest_dir
     
     mm_q1 = math.radians(delta_theta)*radius
+    print("calculated required path length change to be:", mm_q1)
     steps_q1 = int(mm_q1*cf.STEPS_TO_MM_CAPSTAN)
-
-    target_theta = curr_theta + delta_theta
     
     epd_comp = 0
     epu_comp = 0
@@ -54,64 +55,27 @@ def get_steps(curr_theta, delta_theta, latest_dir):
     else:
         print(f"latest_dir didnt change or dir_comp is off: latest_dir = {latest_dir} delta theta = {delta_theta} and dr comp = {cf.DIR_COMP}")
 
+
+    #OVERALL, FOR COMPENSATION, EPU, LJL, LJR, WPD must be the same sign
+
     motor_steps = [0] * len(MotorIndex)  
-    motor_steps[MotorIndex.EPU] = -steps_q1+epu_comp
-    motor_steps[MotorIndex.EPD] = steps_q1+epd_comp
+    motor_steps[MotorIndex.EPU] = steps_q1+epu_comp
+    motor_steps[MotorIndex.EPD] = -steps_q1+epd_comp
 
     #get aux steps
     steps_q3 = int(get_wrist_pl(delta_theta)*(STEPS_TO_MM_LS))
     steps_q4 = int(get_jaw_pl(delta_theta)*STEPS_TO_MM_LS)
     
-    motor_steps[MotorIndex.LJL] = -steps_q4 
-    motor_steps[MotorIndex.LJR] = -steps_q4
+    motor_steps[MotorIndex.LJL] = steps_q4 
+    motor_steps[MotorIndex.LJR] = steps_q4
 
 
-    motor_steps[MotorIndex.RJL] = steps_q4
-    motor_steps[MotorIndex.RJR] = steps_q4
+    motor_steps[MotorIndex.RJL] = -steps_q4
+    motor_steps[MotorIndex.RJR] = -steps_q4
 
 
-    motor_steps[MotorIndex.WPU] = -steps_q3
-    motor_steps[MotorIndex.WPD] = steps_q3
+    motor_steps[MotorIndex.WPU] = steps_q3
+    motor_steps[MotorIndex.WPD] = -steps_q3
     
     return motor_steps, latest_dir
-
-
-def plot_epu_epd_vs_q1():
-    q1_range = np.linspace(0, 180, 181)
-    epd_list = []
-    epu_list = []
-    for theta in q1_range:
-        epd, epu = get_pl(theta)
-        epd_list.append(epd)
-        epu_list.append(epu)
-    plt.figure(figsize=(8, 5))
-    plt.plot(q1_range, epd_list, label='EPD Length')
-    plt.plot(q1_range, epu_list, label='EPU Length')
-    plt.xlabel('q1 (degrees)')
-    plt.ylabel('Cable Length (units)')
-    plt.title('EPD and EPU Lengths vs q1')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig("python_gui/epu_epd_lengths_vs_q1.png")
-    plt.show()
-
-
-def plot_aux_vs_q1():
-    q1_range = np.linspace(0, 180, 181)
-    aux_up_left = []
-    aux_down_right = []
-    for theta in q1_range:
-        aux_up_left.append(get_aux_pl(theta))
-        aux_down_right.append(get_aux_pl(180 - theta))
-    plt.figure(figsize=(8, 5))
-    plt.plot(q1_range, aux_up_left, label='Aux Up Left')
-    plt.plot(q1_range, aux_down_right, label='Aux Down Right')
-    plt.xlabel('q1 (degrees)')
-    plt.ylabel('Aux Cable Length (units)')
-    plt.title('Aux Cable Lengths vs q1')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig("python_gui/aux_cable_lengths_vs_q1.png")
-    plt.show()
-
 

@@ -131,8 +131,8 @@ class ElbowSimulatorGUI:
         wrist_ctrl_frame = ttk.Frame(d_pads_container, padding="5") #
         wrist_ctrl_frame.grid(row=0, column=1, padx=10, pady=5, sticky=tk.N) #
         ttk.Label(wrist_ctrl_frame, text="Wrist Pitch Ctrl", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, pady=(0,5)) #
-        ttk.Button(wrist_ctrl_frame, text="↑", width=4, command=lambda: self._d_pad_wrist_action(self._get_slider_value())).grid(row=1, column=0) # # sign changed based on image
-        ttk.Button(wrist_ctrl_frame, text="↓", width=4, command=lambda: self._d_pad_wrist_action(-self._get_slider_value())).grid(row=2, column=0) # # sign changed based on image
+        ttk.Button(wrist_ctrl_frame, text="↑", width=4, command=lambda: self._d_pad_wrist_action(-self._get_slider_value())).grid(row=1, column=0) # # sign changed based on image
+        ttk.Button(wrist_ctrl_frame, text="↓", width=4, command=lambda: self._d_pad_wrist_action(self._get_slider_value())).grid(row=2, column=0) # # sign changed based on image
 
         jaw_ctrl_frame = ttk.Frame(d_pads_container, padding="5") #
         jaw_ctrl_frame.grid(row=0, column=2, padx=10, pady=5, sticky=tk.N) #
