@@ -4,8 +4,7 @@ import math
 
 import config # For constants, MotorIndex
 from config import MotorIndex #
-from test_motors_gui import TestMotorsWindow # The Toplevel window
-import q1_pl, q2_pl, q3_pl, q4_pl, roll # Joint processors for step calculations
+import q1_pl, q2_pl, q3_pl, q4_pl # Joint processors for step calculations
 
 
 class ElbowSimulatorGUI:
@@ -22,8 +21,6 @@ class ElbowSimulatorGUI:
             error_callback=self._handle_serial_error #
         )
         self.is_verbose_arduino_side = False #
-        self.test_motors_window_instance = None #
-        self.selected_motor_for_test_mode = config.MOTOR_NAMES_FLAT[8] # Default to "EPD"
 
         # --- Tkinter Variables ---
         self.current_step_size_var = tk.IntVar(value=config.DEFAULT_STEP_SIZE_INDEX) #
@@ -39,7 +36,6 @@ class ElbowSimulatorGUI:
         self.wp_degrees_input_var = tk.StringVar(value="0.0") #
         self.lj_degrees_input_var = tk.StringVar(value="0.0") #
         self.rj_degrees_input_var = tk.StringVar(value="0.0") #
-        self.roll_degrees_input_var = tk.StringVar(value="0.0") #
         self.wrist_yaw_degrees_var = tk.StringVar(value="0.0") # For Wrist Yaw mode
 
         # Positional Control Cumulative Display
@@ -48,7 +44,6 @@ class ElbowSimulatorGUI:
         self.cumulative_wp_degrees_var = tk.DoubleVar(value=90.0) #
         self.cumulative_lj_degrees_var = tk.DoubleVar(value=90.0) #
         self.cumulative_rj_degrees_var = tk.DoubleVar(value=90.0) #
-        self.cumulative_roll_degrees_var = tk.DoubleVar(value=0.0) #
 
         #holds the latest direction values for each motor pair, 0 for true neutral, 1 for ccw, -1 for cw
         self.latest_dir = {
@@ -57,11 +52,7 @@ class ElbowSimulatorGUI:
             "WP": 0,
             "LJ": 0,
             "RJ": 0,
-            "ROLL": 0,
         }
-
-        # --- New state variable for the "Step Test Jaws" button ---
-        self.jaw_test_s_command_next = False # If true, next press sends "S"
 
         self._setup_main_layout() #
         self._create_widgets() #
@@ -179,8 +170,6 @@ class ElbowSimulatorGUI:
         self.verbose_button = ttk.Button(sys_cmd_frame, text="Toggle Verbose (OFF)", command=self._toggle_arduino_verbose_action) #
         self.verbose_button.grid(row=0, column=0, padx=5, pady=5) #
         
-        ttk.Button(sys_cmd_frame, text="Start Test Motors", command=self._open_test_motors_window_action).grid(row=0, column=1, padx=5, pady=5) #
-        
         self.wrist_yaw_mode_button = ttk.Checkbutton(
             sys_cmd_frame,
             text="Jaws Mode",  # Initial text, will be updated by _update_jaw_mode_ui
@@ -188,13 +177,9 @@ class ElbowSimulatorGUI:
             command=self._update_jaw_mode_ui,
             style="Toolbutton"
         )
-        self.wrist_yaw_mode_button.grid(row=0, column=2, padx=5, pady=5) 
+        self.wrist_yaw_mode_button.grid(row=0, column=1, padx=5, pady=5) 
         
-        # --- New "Step Test Jaws" Button ---
-        self.step_test_jaws_button = ttk.Button(sys_cmd_frame, text="Step Test Jaws", command=self._toggle_step_test_jaws_action)
-        self.step_test_jaws_button.grid(row=0, column=3, padx=5, pady=5) 
-        
-        sys_cmd_frame.columnconfigure(3, weight=1) # Configure the last column for potential expansion
+        sys_cmd_frame.columnconfigure(1, weight=1) # Adjusted column weight
 
         # Row 3: Inline Positional Control Frame
         self._create_positional_control_frame_widgets(self.main_content_frame) #
@@ -248,11 +233,6 @@ class ElbowSimulatorGUI:
         row_idx +=1 # Increment row_idx after RJ (or use self.rj_target_row + 1 for next element)
 
 
-        ttk.Label(input_frame, text="Roll (°):").grid(row=row_idx, column=0, sticky="w", pady=2) #
-        self.roll_degrees_entry = ttk.Entry(input_frame, textvariable=self.roll_degrees_input_var, width=10) #
-        self.roll_degrees_entry.grid(row=row_idx, column=1, pady=2) #
-        row_idx += 1
-
         ttk.Button(input_frame, text="Move Joints by Degrees", command=self._dedicated_move_by_degrees_action, width=25).grid(row=row_idx, column=0, columnspan=2, pady=10) #
 
         # "Cumulative Joint Position" frame
@@ -278,10 +258,6 @@ class ElbowSimulatorGUI:
         row_idx_cum += 1
         ttk.Label(cumulative_frame, text="Right Jaw:").grid(row=row_idx_cum, column=0, sticky="w", pady=2) #
         ttk.Label(cumulative_frame, textvariable=self.cumulative_rj_degrees_var, width=8, anchor="e").grid(row=row_idx_cum, column=1, sticky="e", pady=2) #
-        ttk.Label(cumulative_frame, text="°").grid(row=row_idx_cum, column=2, sticky="w", pady=2) #
-        row_idx_cum += 1
-        ttk.Label(cumulative_frame, text="Roll:").grid(row=row_idx_cum, column=0, sticky="w", pady=2) #
-        ttk.Label(cumulative_frame, textvariable=self.cumulative_roll_degrees_var, width=8, anchor="e").grid(row=row_idx_cum, column=1, sticky="e", pady=2) #
         ttk.Label(cumulative_frame, text="°").grid(row=row_idx_cum, column=2, sticky="w", pady=2) #
         row_idx_cum += 1
         ttk.Button(cumulative_frame, text="Reset Cumulative Display", command=self._reset_cumulative_degrees_display_action, width=25).grid(row=row_idx_cum, column=0, columnspan=3, pady=10) #
@@ -321,24 +297,12 @@ class ElbowSimulatorGUI:
 
     def _handle_serial_data(self, response_data, data_type="received"): #
         self.log_message(f"Arduino: {response_data}") #
-        if response_data.startswith("TEST_MOTOR_SELECTED:"): #
-            name = response_data.split(":", 1)[1] #
-            self.selected_motor_for_test_mode = name #
-            if self.test_motors_window_instance and self.test_motors_window_instance.winfo_exists(): #
-                self.test_motors_window_instance.update_selected_motor_from_arduino(name) #
-                self.test_motors_window_instance.log_to_test_output(f"Arduino selected motor: {name}") #
-            else:
-                self.log_message(f"(TestLog Echo) Arduino selected motor: {name}") #
-        elif response_data.startswith("VERBOSE_STATE:"): #
+        if response_data.startswith("VERBOSE_STATE:"): #
             state = response_data.split(":")[1].strip() #
             self.is_verbose_arduino_side = (state == "1") #
             self.verbose_button.config(text=f"Toggle Arduino Verbose ({'ON' if self.is_verbose_arduino_side else 'OFF'})") # Updated text
             self.log_message(f"Arduino Verbose mode {'ON' if self.is_verbose_arduino_side else 'OFF'}") #
-        else:
-            if self.test_motors_window_instance and self.test_motors_window_instance.winfo_exists(): #
-                if hasattr(self.test_motors_window_instance, 'log_to_test_output'): #
-                    self.test_motors_window_instance.log_to_test_output(f"Arduino: {response_data}") #
-
+        
     def _handle_serial_error(self, error_message): #
         messagebox.showerror("Serial Error", error_message, parent=self.root) #
         self.log_message(f"ERROR: {error_message}") #
@@ -496,29 +460,6 @@ class ElbowSimulatorGUI:
         self.serial_handler.send_command("TOGGLE_VERBOSE") #
         self.log_message("Sent: TOGGLE_VERBOSE to Arduino") #
 
-    def _open_test_motors_window_action(self): #
-        if self.test_motors_window_instance and self.test_motors_window_instance.winfo_exists(): #
-            self.test_motors_window_instance.lift() #
-            return #
-        self.test_motors_window_instance = TestMotorsWindow( #
-            self.root, self.serial_handler, self.selected_motor_for_test_mode, self.log_message #
-        )
-        # Ensure the main GUI knows when this window is closed by the user
-        self.test_motors_window_instance.protocol("WM_DELETE_WINDOW", 
-                                                  lambda: self.on_test_motors_window_closed(self.test_motors_window_instance))
-
-
-    def on_test_motors_window_closed(self, window_instance=None): #
-        if window_instance: # If called by protocol
-            window_instance.destroy()
-        self.test_motors_window_instance = None #
-        self.log_message("Test Motors window closed.") #
-        # Optionally, send EXIT_TEST if the window closing implies exiting test mode
-        # if self.serial_handler.is_connected:
-        # self.serial_handler.send_command("EXIT_TEST")
-        # self.log_message("Sent EXIT_TEST as Test Motors window closed.")
-
-
     def _dedicated_move_by_degrees_action(self): #
         """Handles the 'Move Joints by Degrees' button press from dedicated input fields."""
         try:
@@ -530,17 +471,15 @@ class ElbowSimulatorGUI:
                     "WP": float(self.wp_degrees_input_var.get()),
                     "LJ": jaw_val_for_yaw, 
                     "RJ": jaw_val_for_yaw, 
-                    "ROLL": float(self.roll_degrees_input_var.get())
                 }
                 self.wrist_yaw_degrees_var.set("0.0")
             else: # Jaws Mode
-                joint_degree_deltas = { #
-                    "EP": float(self.ep_degrees_input_var.get()), #
-                    "EY": float(self.ey_degrees_input_var.get()), #
-                    "WP": float(self.wp_degrees_input_var.get()), #
+                joint_degree_deltas = {
+                    "EP": float(self.ep_degrees_input_var.get()),
+                    "EY": float(self.ey_degrees_input_var.get()),
+                    "WP": float(self.wp_degrees_input_var.get()),
                     "LJ": float(self.lj_degrees_input_var.get()), #
                     "RJ": float(self.rj_degrees_input_var.get()), #
-                    "ROLL": float(self.roll_degrees_input_var.get()) #
                 }
                 self.lj_degrees_input_var.set("0.0") #
                 self.rj_degrees_input_var.set("0.0") #
@@ -549,7 +488,7 @@ class ElbowSimulatorGUI:
             self.ep_degrees_input_var.set("0.0") #
             self.ey_degrees_input_var.set("0.0") #
             self.wp_degrees_input_var.set("0.0") #
-            self.roll_degrees_input_var.set("0.0") #
+            # self.roll_degrees_input_var.set("0.0") # Removed Roll reset
 
         except ValueError:
             messagebox.showerror("Input Error", "Invalid degree value. Please enter numbers only.", parent=self.root) #
@@ -564,7 +503,7 @@ class ElbowSimulatorGUI:
         joint_degree_deltas_input: A dictionary like {"EP": 10.0, "EY": -5.0, ...}
                                         Only keys for joints to be moved need to be present.
         """
-        all_joint_keys = ["EP", "EY", "WP", "LJ", "RJ", "ROLL"] #
+        all_joint_keys = ["EP", "EY", "WP", "LJ", "RJ"] #
         full_joint_degree_deltas = {key: 0.0 for key in all_joint_keys} #
         full_joint_degree_deltas.update(joint_degree_deltas_input) #
 
@@ -574,7 +513,6 @@ class ElbowSimulatorGUI:
             "WP": self.cumulative_wp_degrees_var.get(), #
             "LJ": self.cumulative_lj_degrees_var.get(), #
             "RJ": self.cumulative_rj_degrees_var.get(), #
-            "ROLL": self.cumulative_roll_degrees_var.get() #
         }
 
         joint_processors = { #
@@ -583,7 +521,6 @@ class ElbowSimulatorGUI:
             "WP": (current_abs_positions["WP"], full_joint_degree_deltas["WP"], q3_pl.get_steps, self.latest_dir["WP"]), #
             "LJ": (current_abs_positions["LJ"], full_joint_degree_deltas["LJ"], q4_pl.get_steps_L, self.latest_dir["LJ"]), #
             "RJ": (current_abs_positions["RJ"], full_joint_degree_deltas["RJ"], q4_pl.get_steps_R, self.latest_dir["RJ"]), #
-            "ROLL": (current_abs_positions["ROLL"], full_joint_degree_deltas["ROLL"], roll.get_steps, 0) #
         }
 
         total_motor_steps = [0] * len(MotorIndex) #
@@ -619,8 +556,6 @@ class ElbowSimulatorGUI:
                 self.cumulative_lj_degrees_var.set(round(current_abs_positions["LJ"] + full_joint_degree_deltas["LJ"], 2)) #
             if full_joint_degree_deltas["RJ"] != 0: #
                 self.cumulative_rj_degrees_var.set(round(current_abs_positions["RJ"] + full_joint_degree_deltas["RJ"], 2)) #
-            if full_joint_degree_deltas["ROLL"] != 0: #
-                self.cumulative_roll_degrees_var.set(round(current_abs_positions["ROLL"] + full_joint_degree_deltas["ROLL"], 2)) #
         else:
             self.log_message("Failed to send degree-based command.") #
 
@@ -630,7 +565,6 @@ class ElbowSimulatorGUI:
         self.cumulative_wp_degrees_var.set(90.0) #
         self.cumulative_lj_degrees_var.set(90.0) #
         self.cumulative_rj_degrees_var.set(90.0) #
-        self.cumulative_roll_degrees_var.set(0.0) # Roll's reference is 0
         
         if not from_test_mode and not is_initial_setup: #
             messagebox.showinfo("Reset", "Cumulative degree display has been reset to reference positions.", parent=self.root) #
@@ -641,50 +575,8 @@ class ElbowSimulatorGUI:
         self._reset_cumulative_degrees_display_action(from_test_mode=True) #
         self.log_message("Cumulative degrees display reset due to 'Set Home' in Test Motors mode.") #
 
-    # --- New method for the "Step Test Jaws" button ---
-    def _toggle_step_test_jaws_action(self):
-        if not self.serial_handler.is_connected:
-            self.log_message("Cannot perform jaw test: Not connected to Arduino.")
-            messagebox.showwarning("Connection Error", "Please connect to the Arduino first.", parent=self.root)
-            return
-
-        if not self.jaw_test_s_command_next:
-            # Send START_TEST_Q4
-            cmd_to_send = "START_TEST_Q4"
-            if self.serial_handler.send_command(cmd_to_send):
-                self.log_message(f"Sent: {cmd_to_send}")
-                self.step_test_jaws_button.config(text="Send 'S' (Jaw Test)")
-                self.jaw_test_s_command_next = True
-            else:
-                self.log_message(f"Failed to send: {cmd_to_send}")
-        else:
-            # Send S
-            cmd_to_send = "S"
-            if self.serial_handler.send_command(cmd_to_send):
-                self.log_message(f"Sent: {cmd_to_send}")
-                self.step_test_jaws_button.config(text="Step Test Jaws")
-                self.jaw_test_s_command_next = False
-            else:
-                self.log_message(f"Failed to send: {cmd_to_send}")
-
     def cleanup_on_exit(self): #
         self.log_message("Application exiting. Cleaning up...")
-        
-        needs_exit_test = False
-        # Check if the Test Motors window instance exists and the window is still valid
-        if self.test_motors_window_instance and self.test_motors_window_instance.winfo_exists():
-            needs_exit_test = True
-            self.log_message("Test Motors window was active, will send EXIT_TEST.")
-        # Check if the jaw test was initiated (START_TEST_Q4 sent, S is next)
-        elif self.jaw_test_s_command_next: 
-            needs_exit_test = True
-            self.log_message("Jaw test mode (START_TEST_Q4) presumed active, will send EXIT_TEST.")
-        
-        if needs_exit_test and self.serial_handler.is_connected:
-            if self.serial_handler.send_command("EXIT_TEST"):
-                self.log_message("Sent EXIT_TEST to Arduino.")
-            else:
-                self.log_message("Failed to send EXIT_TEST to Arduino.")
         
         self.serial_handler.cleanup() #
         self.log_message("Serial handler cleaned up.") #

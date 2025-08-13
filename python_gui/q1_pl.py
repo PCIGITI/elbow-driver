@@ -58,9 +58,10 @@ def get_steps(curr_theta, delta_theta, latest_dir):
 
     #OVERALL, FOR COMPENSATION, EPU, LJL, LJR, WPD must be the same sign
 
+    #Positive steps moves Q1 UP 
+
     motor_steps = [0] * len(MotorIndex)  
-    motor_steps[MotorIndex.EPU] = steps_q1+epu_comp
-    motor_steps[MotorIndex.EPD] = -steps_q1+epd_comp
+    motor_steps[MotorIndex.EP] = steps_q1+epu_comp
 
     #get aux steps
     steps_q3 = int(get_wrist_pl(delta_theta)*(STEPS_TO_MM_LS))
@@ -74,8 +75,8 @@ def get_steps(curr_theta, delta_theta, latest_dir):
     motor_steps[MotorIndex.RJR] = -steps_q4
 
 
-    motor_steps[MotorIndex.WPU] = steps_q3
-    motor_steps[MotorIndex.WPD] = -steps_q3
+    motor_steps[MotorIndex.WPU] = -steps_q3
+    motor_steps[MotorIndex.WPD] = steps_q3
     
     return motor_steps, latest_dir
 

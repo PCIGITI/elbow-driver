@@ -47,8 +47,7 @@ def get_steps(curr_theta, delta_theta, latest_dir):
 
     ## when I shorten yaw left, i have to shorten left jaw left and right jaw left
 
-    motor_steps[cf.MotorIndex.EYR] = -steps_ey
-    motor_steps[cf.MotorIndex.EYL] = steps_ey
+    motor_steps[cf.MotorIndex.EY] = steps_ey
 
     steps_q4 = int(get_jaw_pl(delta_theta)*STEPS_TO_MM_LS)
 
@@ -58,26 +57,3 @@ def get_steps(curr_theta, delta_theta, latest_dir):
     motor_steps[cf.MotorIndex.LJR] = -steps_q4
 
     return motor_steps, latest_dir
-
-
-def plot_aux_cable_lengths():
-    q2_range = np.linspace(40, 140, 361)
-    jl_lengths = []
-    jr_lengths = []
-
-    for theta in q2_range:
-        pl_jl, pl_jr = get_aux_pl(theta)
-        jl_lengths.append(pl_jl)
-        jr_lengths.append(pl_jr)
-
-    plt.figure(figsize=(8, 5))
-    plt.plot(q2_range, jl_lengths, label='Jaw Left Cable Length')
-    plt.plot(q2_range, jr_lengths, label='Jaw Right Cable Length')
-    plt.xlabel('q2 (degrees)')
-    plt.ylabel('Cable Length (mm)')
-    plt.title('Aux Cable Lengths vs q2')
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig('aux_cable_lengths_q2.png')
-    plt.show()
