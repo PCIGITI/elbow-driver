@@ -63,6 +63,6 @@ def get_steps_R(curr_theta, delta_theta, latest_dir):
         print(f"latest_dir didnt change or dir_comp is off: latest_dir = {latest_dir} delta theta = {delta_theta} and dr comp = {cf.DIR_COMP}")
         print("oopsies")
     
-    motor_steps[cf.MotorIndex.RJL] = steps
-    motor_steps[cf.MotorIndex.RJR] = -steps
+    motor_steps[cf.MotorIndex.RJL] = -steps
+    motor_steps[cf.MotorIndex.RJR] = steps
     return motor_steps, latest_dir

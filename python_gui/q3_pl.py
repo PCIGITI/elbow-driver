@@ -187,12 +187,19 @@ def get_steps(curr_theta, delta_theta, latest_dir):
         print(f"L_current_LJL_LJR: {curr_lj:.4f}, L_target_LJL_LJR: {target_lj:.4f}, delta_L: {delta_lj:.4f}")
         print(f"L_current_RJ: {curr_rj:.4f}, L_target_RJ: {target_rj:.4f}, delta_L: {delta_rj:.4f}")
 
-        #positive steps = cable shortening! so flip the signs, because a negative delta length = cable shortening
-        steps_lj = -int(delta_lj*(200/0.3))
-        steps_rj = -int(delta_rj*(200/0.3))
+        #positive steps = cable LENGTHENING (dynamixel motors aug 14 2025)
+        
+        ##positive steps_wp moves Q3 DOWN
+        ##therefore, we want to lengthen (positive) LJ 
+        ##and shorten (negative) RJ
 
+
+        steps_lj = -int(delta_lj*cf.STEPS_TO_MM_LS)
+        steps_rj = -int(delta_rj*cf.STEPS_TO_MM_LS)
         motor_steps[cf.MotorIndex.WPD] = -steps_wp
         motor_steps[cf.MotorIndex.WPU] = steps_wp
+
+        
         motor_steps[cf.MotorIndex.RJL] = steps_rj
         motor_steps[cf.MotorIndex.LJR] = steps_lj
         motor_steps[cf.MotorIndex.LJL] = steps_lj

@@ -16,7 +16,6 @@ radius = 1.5 #mm
 def get_jaw_pl(delta_theta):
     r2 = 1.25
     delta_s = math.radians(delta_theta)*r2
-
     return delta_s
 
 def get_wrist_pl(delta_theta):
@@ -61,7 +60,7 @@ def get_steps(curr_theta, delta_theta, latest_dir):
     #Positive steps moves Q1 UP 
 
     motor_steps = [0] * len(MotorIndex)  
-    motor_steps[MotorIndex.EP] = steps_q1+epu_comp
+    motor_steps[MotorIndex.EP] = steps_q1+epu_comp ##positive step value here will move EP UP , so we want WPD , RJR RJL to lengthen (positive)
 
     #get aux steps
     steps_q3 = int(get_wrist_pl(delta_theta)*(STEPS_TO_MM_LS))

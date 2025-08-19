@@ -23,10 +23,11 @@ class ElbowSimulatorGUI:
         self.is_verbose_arduino_side = False #
 
         # --- Tkinter Variables ---
-        self.control_mode_is_degrees_var = tk.BooleanVar(value=True) # True=Degrees, False=Steps
-        self.individual_motor_mode_var = tk.BooleanVar(value=False)
-        self.step_degree_input_var = tk.StringVar(value="1.0")
+        self.current_step_size_var = tk.IntVar(value=config.DEFAULT_STEP_SIZE_INDEX) #
         
+        self.d_pad_degree_mode_var = tk.BooleanVar(value=False) # Default to Degree mode for D-Pads
+        
+        # Moved from _create_positional_control_frame_widgets
         self.wrist_yaw_mode_var = tk.BooleanVar(value=False)  # False = Jaws Mode, True = Wrist Yaw Mode
 
         # Positional Control Inputs (for the dedicated degree input fields)
@@ -56,7 +57,8 @@ class ElbowSimulatorGUI:
         self._setup_main_layout() #
         self._create_widgets() #
         self._create_output_area() # Create the serial output log box
-        self._update_control_mode_ui() # Initialize new control UI
+        self._update_d_pad_mode_and_slider_label() # Initialize D-pad mode display
+        # self._update_jaw_mode_ui() # Called at the end of _create_positional_control_frame_widgets
 
         self.log_message(f"{config.APP_TITLE} initialized.") #
 
@@ -97,8 +99,69 @@ class ElbowSimulatorGUI:
         self.status_label.grid(row=0, column=3, padx=5, pady=5, sticky=tk.W) #
         conn_frame.columnconfigure(3, weight=1) #
 
-        # Row 1: NEW Joint Controls (Replaces D-Pads)
-        self._create_joint_control_widgets(self.main_content_frame)
+        # Row 1: D-Pad Controls
+        d_pad_super_frame = ttk.LabelFrame(self.main_content_frame, text="D-Pad Controls", padding="5") #
+        d_pad_super_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5) #
+
+        d_pads_container = ttk.Frame(d_pad_super_frame) #
+        d_pads_container.grid(row=0, column=0, columnspan=3) #
+
+        elbow_ctrl_frame = ttk.Frame(d_pads_container, padding="5") #
+        elbow_ctrl_frame.grid(row=0, column=0, padx=10, pady=5, sticky=tk.N) #
+        ttk.Label(elbow_ctrl_frame, text="Elbow Ctrl", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, columnspan=3, pady=(0,5)) #
+        ttk.Button(elbow_ctrl_frame, text="↖", width=3, command=lambda: self._d_pad_elbow_action(-self._get_slider_value(), -self._get_slider_value())).grid(row=1, column=0) # # sign changed based on image
+        ttk.Button(elbow_ctrl_frame, text="↑", width=3, command=lambda: self._d_pad_elbow_action(-self._get_slider_value(), 0)).grid(row=1, column=1) # # sign changed based on image
+        ttk.Button(elbow_ctrl_frame, text="↗", width=3, command=lambda: self._d_pad_elbow_action(-self._get_slider_value(), self._get_slider_value())).grid(row=1, column=2) # # sign changed based on image
+        ttk.Button(elbow_ctrl_frame, text="←", width=3, command=lambda: self._d_pad_elbow_action(0, -self._get_slider_value())).grid(row=2, column=0) # # sign changed based on image
+        tk.Label(elbow_ctrl_frame, text=" ").grid(row=2, column=1) #
+        ttk.Button(elbow_ctrl_frame, text="→", width=3, command=lambda: self._d_pad_elbow_action(0, self._get_slider_value())).grid(row=2, column=2) # # sign changed based on image
+        ttk.Button(elbow_ctrl_frame, text="↙", width=3, command=lambda: self._d_pad_elbow_action(self._get_slider_value(), -self._get_slider_value())).grid(row=3, column=0) # # sign changed based on image
+        ttk.Button(elbow_ctrl_frame, text="↓", width=3, command=lambda: self._d_pad_elbow_action(self._get_slider_value(), 0)).grid(row=3, column=1) # # sign changed based on image
+        ttk.Button(elbow_ctrl_frame, text="↘", width=3, command=lambda: self._d_pad_elbow_action(self._get_slider_value(), self._get_slider_value())).grid(row=3, column=2) # # sign changed based on image
+        
+        wrist_ctrl_frame = ttk.Frame(d_pads_container, padding="5") #
+        wrist_ctrl_frame.grid(row=0, column=1, padx=10, pady=5, sticky=tk.N) #
+        ttk.Label(wrist_ctrl_frame, text="Wrist Pitch Ctrl", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, pady=(0,5)) #
+        ttk.Button(wrist_ctrl_frame, text="↑", width=4, command=lambda: self._d_pad_wrist_action(-self._get_slider_value())).grid(row=1, column=0) # # sign changed based on image
+        ttk.Button(wrist_ctrl_frame, text="↓", width=4, command=lambda: self._d_pad_wrist_action(self._get_slider_value())).grid(row=2, column=0) # # sign changed based on image
+
+        jaw_ctrl_frame = ttk.Frame(d_pads_container, padding="5") #
+        jaw_ctrl_frame.grid(row=0, column=2, padx=10, pady=5, sticky=tk.N) #
+        ttk.Label(jaw_ctrl_frame, text="Jaw Ctrl", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, columnspan=3, pady=(0,5)) #
+        ttk.Label(jaw_ctrl_frame, text="Left Jaw:").grid(row=1, column=0, sticky=tk.E) #
+
+        jaw_dir = 1
+        ttk.Button(jaw_ctrl_frame, text="←", width=3, command=lambda: self._d_pad_left_jaw_action(jaw_dir*self._get_slider_value())).grid(row=1, column=1) #
+        ttk.Button(jaw_ctrl_frame, text="→", width=3, command=lambda: self._d_pad_left_jaw_action(-1*jaw_dir*self._get_slider_value())).grid(row=1, column=2) #
+        ttk.Label(jaw_ctrl_frame, text="Right Jaw:").grid(row=2, column=0, sticky=tk.E) #
+        ttk.Button(jaw_ctrl_frame, text="←", width=3, command=lambda: self._d_pad_right_jaw_action(jaw_dir*self._get_slider_value())).grid(row=2, column=1) # # sign changed based on image
+        ttk.Button(jaw_ctrl_frame, text="→", width=3, command=lambda: self._d_pad_right_jaw_action(-1*jaw_dir*self._get_slider_value())).grid(row=2, column=2) # # sign changed based on image
+        
+        d_pads_container.columnconfigure(0, weight=1) #
+        d_pads_container.columnconfigure(1, weight=1) #
+        d_pads_container.columnconfigure(2, weight=1) #
+
+        d_pad_mode_slider_frame = ttk.Frame(d_pad_super_frame) #
+        d_pad_mode_slider_frame.grid(row=1, column=0, columnspan=3, pady=(10,5)) #
+
+        self.d_pad_mode_button = ttk.Checkbutton( #
+            d_pad_mode_slider_frame, #
+            text="D-Pad Mode: Degrees", # Initial text, will be updated
+            variable=self.d_pad_degree_mode_var, #
+            command=self._update_d_pad_mode_and_slider_label, #
+            style="Toolbutton" # Makes it look more like a toggle button
+        )
+        self.d_pad_mode_button.pack(side=tk.LEFT, padx=(0,10)) #
+        
+        ttk.Label(d_pad_mode_slider_frame, text="Increment:").pack(side=tk.LEFT, padx=(0,5)) #
+        self.step_size_slider = ttk.Scale( #
+            d_pad_mode_slider_frame, from_=0, to=len(config.STEP_SIZES) - 1, orient=tk.HORIZONTAL, #
+            variable=self.current_step_size_var, command=self._update_d_pad_mode_and_slider_label, length=150) #
+        self.step_size_slider.pack(side=tk.LEFT, padx=(0,5)) #
+        self.step_size_slider.set(self.current_step_size_var.get()) #
+        
+        self.d_pad_increment_display_label = ttk.Label(d_pad_mode_slider_frame, text="", width=12) # Renamed for clarity
+        self.d_pad_increment_display_label.pack(side=tk.LEFT) #
 
         # Row 2: System Commands
         sys_cmd_frame = ttk.LabelFrame(self.main_content_frame, text="System Commands", padding="5") #
@@ -121,79 +184,10 @@ class ElbowSimulatorGUI:
         # Row 3: Inline Positional Control Frame
         self._create_positional_control_frame_widgets(self.main_content_frame) #
 
-    def _create_joint_control_widgets(self, parent_frame):
-        """Creates the new joint control UI as requested."""
-        joint_super_frame = ttk.LabelFrame(parent_frame, text="Joint Controls", padding="10")
-        joint_super_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
-        joint_super_frame.columnconfigure(0, weight=1) # Center the content
-
-        # --- Top row: Mode, Input, and Individual Toggle ---
-        top_controls_frame = ttk.Frame(joint_super_frame)
-        top_controls_frame.pack(pady=5, padx=5)
-
-        self.control_mode_button = ttk.Checkbutton(
-            top_controls_frame,
-            text="Mode: Degrees",
-            variable=self.control_mode_is_degrees_var,
-            command=self._update_control_mode_ui,
-            style="Toolbutton"
-        )
-        self.control_mode_button.pack(side=tk.LEFT, padx=(0, 15))
-
-        ttk.Label(top_controls_frame, text="Value:").pack(side=tk.LEFT, padx=(0, 5))
-        self.step_degree_entry = ttk.Entry(top_controls_frame, textvariable=self.step_degree_input_var, width=10)
-        self.step_degree_entry.pack(side=tk.LEFT, padx=(0, 15))
-
-        self.individual_motor_toggle = ttk.Checkbutton(
-            top_controls_frame,
-            text="Individual Motor Control",
-            variable=self.individual_motor_mode_var,
-            style="Toolbutton",
-            command=self._on_individual_motor_toggle
-        )
-        self.individual_motor_toggle.pack(side=tk.LEFT, padx=(0, 10))
-
-        # --- Joint Buttons ---
-        joints_frame = ttk.Frame(joint_super_frame, padding="5")
-        joints_frame.pack(pady=(10,0))
-
-        # Define joint data
-        joint_data = [
-            ("Q1 (Elbow Pitch)", "Q1"),
-            ("Q2 (Elbow Yaw)", "Q2"),
-            ("Q3 (Wrist Pitch)", "Q3"),
-        ]
-
-        # Create Q1, Q2, Q3 rows
-        for i, (label, joint_id) in enumerate(joint_data):
-            neg_btn = ttk.Button(joints_frame, text="-", width=4, command=lambda j=joint_id: self._joint_button_action(j, -1))
-            neg_btn.grid(row=i, column=0, padx=5, pady=2)
-            ttk.Label(joints_frame, text=label, width=20, anchor="center").grid(row=i, column=1)
-            ttk.Button(joints_frame, text="+", width=4, command=lambda j=joint_id: self._joint_button_action(j, 1)).grid(row=i, column=2, padx=5, pady=2)
-            
-            if joint_id == "Q1": self.q1_neg_button = neg_btn
-            if joint_id == "Q2": self.q2_neg_button = neg_btn
-
-        # Q4 Frame for Jaws
-        q4_frame = ttk.Frame(joints_frame)
-        q4_frame.grid(row=len(joint_data), column=0, columnspan=3, pady=5)
-
-        # Q4L
-        ttk.Button(q4_frame, text="-", width=4, command=lambda: self._joint_button_action("Q4L", -1)).grid(row=0, column=0)
-        ttk.Label(q4_frame, text="Q4L", anchor="center").grid(row=0, column=1, padx=(2, 8))
-        ttk.Button(q4_frame, text="+", width=4, command=lambda: self._joint_button_action("Q4L", 1)).grid(row=0, column=2)
-
-        # Spacer
-        ttk.Label(q4_frame, text=" (Jaws) ", anchor="center").grid(row=0, column=3, padx=15)
-
-        # Q4R - Note the button order from the prompt
-        ttk.Button(q4_frame, text="+", width=4, command=lambda: self._joint_button_action("Q4R", 1)).grid(row=0, column=4)
-        ttk.Label(q4_frame, text="Q4R", anchor="center").grid(row=0, column=5, padx=(2, 8))
-        ttk.Button(q4_frame, text="-", width=4, command=lambda: self._joint_button_action("Q4R", -1)).grid(row=0, column=6)
-
     def _create_positional_control_frame_widgets(self, parent_frame): #
         positional_super_frame = ttk.LabelFrame(parent_frame, text="Positional Control (Dedicated Input Fields)", padding="10") #
         positional_super_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10) #
+        # parent_frame.grid_rowconfigure(3, weight=0)
 
         # "Move by Degrees" frame
         input_frame = ttk.LabelFrame(positional_super_frame, text="Move by Degrees", padding="10") #
@@ -215,23 +209,28 @@ class ElbowSimulatorGUI:
         self.wp_degrees_entry.grid(row=row_idx, column=1, pady=2) #
         row_idx += 1
         
+        # Store target rows for dynamic placement by _update_jaw_mode_ui
         self.lj_target_row = row_idx
-        self.rj_target_row = row_idx + 1 
+        self.rj_target_row = row_idx + 1 # Assuming RJ is one row below LJ if both are visible
 
+        # Wrist Yaw input (hidden by default, managed by _update_jaw_mode_ui)
         self.wrist_yaw_label = ttk.Label(input_frame, text="Wrist Yaw (°):")
         self.wrist_yaw_entry = ttk.Entry(input_frame, textvariable=self.wrist_yaw_degrees_var, width=10)
+        # Not gridding wrist_yaw_label/entry here; _update_jaw_mode_ui will handle it.
 
+        # Left Jaw input (gridded here, then managed by _update_jaw_mode_ui)
         self.lj_label = ttk.Label(input_frame, text="Left Jaw (°):") #
         self.lj_degrees_entry = ttk.Entry(input_frame, textvariable=self.lj_degrees_input_var, width=10) #
         self.lj_label.grid(row=self.lj_target_row, column=0, sticky="w", pady=2) #
         self.lj_degrees_entry.grid(row=self.lj_target_row, column=1, pady=2) #
-        row_idx +=1 
+        row_idx +=1 # Increment row_idx after LJ
 
+        # Right Jaw input (gridded here, then managed by _update_jaw_mode_ui)
         self.rj_label = ttk.Label(input_frame, text="Right Jaw (°):") #
         self.rj_degrees_entry = ttk.Entry(input_frame, textvariable=self.rj_degrees_input_var, width=10) #
         self.rj_label.grid(row=self.rj_target_row, column=0, sticky="w", pady=2) #
         self.rj_degrees_entry.grid(row=self.rj_target_row, column=1, pady=2) #
-        row_idx +=1 
+        row_idx +=1 # Increment row_idx after RJ (or use self.rj_target_row + 1 for next element)
 
 
         ttk.Button(input_frame, text="Move Joints by Degrees", command=self._dedicated_move_by_degrees_action, width=25).grid(row=row_idx, column=0, columnspan=2, pady=10) #
@@ -315,37 +314,31 @@ class ElbowSimulatorGUI:
         else:
             self.serial_handler.disconnect() #
 
-    def _update_control_mode_ui(self, event=None):
-        """Updates UI elements based on the control mode (Degrees/Steps)."""
-        is_degrees = self.control_mode_is_degrees_var.get()
+    def _get_slider_value(self): #
+        """Gets the numerical value from the slider based on its current index."""
+        try:
+            selected_index = int(self.current_step_size_var.get()) #
+            if 0 <= selected_index < len(config.STEP_SIZES): #
+                return config.STEP_SIZES[selected_index] #
+        except tk.TclError: pass 
+        return config.STEP_SIZES[config.DEFAULT_STEP_SIZE_INDEX] #
 
-        if is_degrees:
-            self.control_mode_button.config(text="Mode: Degrees")
-            # Disable individual motor control in degrees mode
-            self.individual_motor_toggle.config(state=tk.DISABLED)
-            self.individual_motor_mode_var.set(False) # Uncheck it
-        else: # Steps mode
-            self.control_mode_button.config(text="Mode: Steps")
-            # Enable individual motor control
-            self.individual_motor_toggle.config(state=tk.NORMAL)
+    def _update_d_pad_mode_and_slider_label(self, event=None): #
+        """Updates the D-Pad mode checkbutton text and the slider's increment display label."""
+        if not hasattr(self, 'd_pad_increment_display_label') or not self.d_pad_increment_display_label: #
+            return
+        
+        current_val = self._get_slider_value() #
+        is_degree_mode = self.d_pad_degree_mode_var.get() #
 
-        # Update button states based on the new mode
-        self._on_individual_motor_toggle()
-
-    def _on_individual_motor_toggle(self, event=None):
-        """Updates button states when individual motor mode is toggled or control mode changes."""
-        is_individual = self.individual_motor_mode_var.get()
-        is_degrees = self.control_mode_is_degrees_var.get()
-
-        # The toggle should only have an effect if we are in steps mode.
-        if is_individual and not is_degrees:
-            # Gray out Q1 and Q2 negative buttons
-            self.q1_neg_button.config(state=tk.DISABLED)
-            self.q2_neg_button.config(state=tk.DISABLED)
+        if is_degree_mode: #
+            unit_label = "degrees" #
+            self.d_pad_mode_button.config(text="D-Pad Mode: Degrees") #
         else:
-            # Re-enable them for coordinated or degree mode
-            self.q1_neg_button.config(state=tk.NORMAL)
-            self.q2_neg_button.config(state=tk.NORMAL)
+            unit_label = "steps" #
+            self.d_pad_mode_button.config(text="D-Pad Mode: Steps") #
+        
+        self.d_pad_increment_display_label.config(text=f"{current_val} {unit_label}") #
 
     def _update_jaw_mode_ui(self, event=None):
         """Updates the UI elements for Jaw/Wrist Yaw mode for dedicated degree inputs."""
@@ -354,8 +347,10 @@ class ElbowSimulatorGUI:
         if hasattr(self, 'wrist_yaw_mode_button') and self.wrist_yaw_mode_button.winfo_exists():
             self.wrist_yaw_mode_button.config(text="Wrist Yaw Mode" if is_wrist_yaw_mode else "Jaws Mode")
 
+        # Determine target row for Wrist Yaw (e.g., same as Left Jaw's original position)
         wrist_yaw_target_row = self.lj_target_row if hasattr(self, 'lj_target_row') else 3 
 
+        # Show/Hide Left Jaw input fields
         if hasattr(self, 'lj_label') and self.lj_label.winfo_exists():
             if not is_wrist_yaw_mode:
                 self.lj_label.grid(row=self.lj_target_row, column=0, sticky="w", pady=2)
@@ -364,6 +359,7 @@ class ElbowSimulatorGUI:
                 self.lj_label.grid_remove()
                 self.lj_degrees_entry.grid_remove()
 
+        # Show/Hide Right Jaw input fields
         if hasattr(self, 'rj_label') and self.rj_label.winfo_exists():
             if not is_wrist_yaw_mode:
                 self.rj_label.grid(row=self.rj_target_row, column=0, sticky="w", pady=2)
@@ -372,6 +368,7 @@ class ElbowSimulatorGUI:
                 self.rj_label.grid_remove()
                 self.rj_degrees_entry.grid_remove()
 
+        # Show/Hide Wrist Yaw input fields
         if hasattr(self, 'wrist_yaw_label') and self.wrist_yaw_label.winfo_exists():
             if is_wrist_yaw_mode:
                 self.wrist_yaw_label.grid(row=wrist_yaw_target_row, column=0, sticky="w", pady=2)
@@ -384,75 +381,78 @@ class ElbowSimulatorGUI:
         if hasattr(self, 'rj_degrees_input_var'): self.rj_degrees_input_var.set("0.0")
         if hasattr(self, 'wrist_yaw_degrees_var'): self.wrist_yaw_degrees_var.set("0.0")
 
-    def _joint_button_action(self, joint, sign):
-        """Handles all joint control button presses."""
-        try:
-            value = float(self.step_degree_input_var.get())
-        except ValueError:
-            messagebox.showerror("Input Error", "Invalid value. Please enter a number.", parent=self.root)
-            return
+    def _d_pad_elbow_action(self, pitch_val, yaw_val): #
+        """Handles Elbow D-Pad actions based on the current D-Pad control mode."""
+        if pitch_val == 0 and yaw_val == 0: return #
 
-        is_degrees = self.control_mode_is_degrees_var.get()
-        is_individual = self.individual_motor_mode_var.get()
+        if not self.d_pad_degree_mode_var.get(): # Direct Step Mode
+            motor_steps = [0] * len(MotorIndex) #
+            motor_steps[MotorIndex.EP] = int(pitch_val)  # Based on image: UP arrow leads to negative pitch_val
+            motor_steps[MotorIndex.EY] = -int(yaw_val)    # Based on image: LEFT arrow leads to positive yaw_val
+            steps_str = ",".join(map(str, motor_steps)) #
+            cmd = f"MOVE_ALL_MOTORS:{steps_str}" #
+            self.serial_handler.send_command(cmd) #
+            self.log_message(f"Sent D-Pad Step Elbow: Pitch {pitch_val}, Yaw {yaw_val} (Steps: {cmd})") #
+        else: # Degree-Based Mode
+            joint_degree_deltas = {"EP": float(pitch_val), "EY": float(yaw_val)} #
+            self.log_message(f"D-Pad Degree Elbow: Pitch {pitch_val}°, Yaw {yaw_val}°") #
+            self._execute_degree_based_move(joint_degree_deltas) #
+            #self.cumulative_ep_degrees_var.set(self.cumulative_ep_degrees_var.get() + pitch_val)
+            #self.cumulative_ey_degrees_var.set(self.cumulative_ey_degrees_var.get() + yaw_val)
 
-        if is_degrees:
-            # --- Degree-Based Mode (always coordinated) ---
-            # Signs multiply to get the final degree value.
-            applied_value = value * sign
-            joint_map = {"Q1": "EP", "Q2": "EY", "Q3": "WP", "Q4L": "LJ", "Q4R": "RJ"}
-            joint_key = joint_map.get(joint)
-            if joint_key:
-                joint_degree_deltas = {joint_key: applied_value}
-                self.log_message(f"Joint Move: {joint} by {applied_value}°")
-                self._execute_degree_based_move(joint_degree_deltas)
-        else:
-            # --- Step-Based Mode ---
-            motor_steps = [0] * len(MotorIndex)
-            
-            if is_individual:
-                # --- Individual Motor Control ---
-                # Buttons select the motor, value box provides the signed step count.
-                motor_map = {
-                    ("Q1", 1): MotorIndex.EP,
-                    ("Q2", 1): MotorIndex.EY,
-                    ("Q3", 1): MotorIndex.WPD,
-                    ("Q3", -1): MotorIndex.WPU,
-                    ("Q4L", 1): MotorIndex.LJR,
-                    ("Q4L", -1): MotorIndex.LJL,
-                    ("Q4R", 1): MotorIndex.RJL,
-                    ("Q4R", -1): MotorIndex.RJR,
-                }
-                motor_to_move = motor_map.get((joint, sign))
-                if motor_to_move is not None:
-                    steps_value = int(value) # Use the value from the box directly
-                    motor_steps[motor_to_move] = steps_value
-                    self.log_message(f"Individual Motor Step: {motor_to_move.name} by {steps_value} steps")
-                else:
-                     self.log_message(f"Invalid individual motor command: {joint} sign {sign}")
-                     return
-            else:
-                # --- Coordinated Step Mode ---
-                # Signs multiply to get the final step value.
-                applied_value = value * sign
-                steps = int(applied_value)
-                if joint == "Q1": motor_steps[MotorIndex.EP] = steps
-                elif joint == "Q2": motor_steps[MotorIndex.EY] = steps
-                elif joint == "Q3": # Wrist Pitch
-                    motor_steps[MotorIndex.WPD] = steps
-                    motor_steps[MotorIndex.WPU] = -steps
-                elif joint == "Q4L": # Left Jaw Yaw
-                    motor_steps[MotorIndex.LJR] = steps
-                    motor_steps[MotorIndex.LJL] = -steps
-                elif joint == "Q4R": # Right Jaw Yaw
-                    motor_steps[MotorIndex.RJL] = steps
-                    motor_steps[MotorIndex.RJR] = -steps
-                
-                self.log_message(f"Coordinated Step Move: {joint} by {steps} steps")
 
-            steps_str = ",".join(map(str, motor_steps))
-            cmd = f"MOVE_ALL_MOTORS:{steps_str}"
-            self.serial_handler.send_command(cmd)
-            self.log_message(f"Sent Step-Based Move: {cmd}")
+    def _d_pad_wrist_action(self, value): #
+        """Handles Wrist D-Pad actions based on the current D-Pad control mode."""
+        if value == 0: return #
+
+        if not self.d_pad_degree_mode_var.get(): # Direct Step Mode
+            motor_steps = [0] * len(MotorIndex) #
+            motor_steps[MotorIndex.WPD] = int(value)  # Based on image: UP arrow leads to positive value
+            motor_steps[MotorIndex.WPU] = -int(value) #
+            steps_str = ",".join(map(str, motor_steps)) #
+            cmd = f"MOVE_ALL_MOTORS:{steps_str}" #
+            self.serial_handler.send_command(cmd) #
+            self.log_message(f"Sent D-Pad Step Wrist: {value} (Steps: {cmd})") #
+        else: # Degree-Based Mode
+            joint_degree_deltas = {"WP": float(value)} #
+            self.log_message(f"D-Pad Degree Wrist: {value}°") #
+            self._execute_degree_based_move(joint_degree_deltas) #
+
+    def _d_pad_left_jaw_action(self, value): #
+        """Handles Left Jaw D-Pad actions based on the current D-Pad control mode."""
+        if value == 0: return #
+        if not self.d_pad_degree_mode_var.get(): # Direct Step Mode
+            motor_steps = [0] * len(MotorIndex) #
+            motor_steps[MotorIndex.LJR] = int(value) #
+            motor_steps[MotorIndex.LJL] = -int(value) #
+            steps_str = ",".join(map(str, motor_steps)) #
+            cmd = f"MOVE_ALL_MOTORS:{steps_str}" #
+            self.serial_handler.send_command(cmd) #
+            self.log_message(f"Sent D-Pad Step Left Jaw: {value} (Steps: {cmd})") #
+        else: # Degree-Based Mode
+            joint_degree_deltas = {"LJ": float(value)} #
+            self.log_message(f"D-Pad Degree Left Jaw: {value}°") #
+            self._execute_degree_based_move(joint_degree_deltas) #
+            #self.cumulative_lj_degrees_var.set(self.cumulative_lj_degrees_var.get() + value)
+
+
+    def _d_pad_right_jaw_action(self, value): #
+        """Handles Right Jaw D-Pad actions based on the current D-Pad control mode."""
+        if value == 0: return #
+        if not self.d_pad_degree_mode_var.get(): # Direct Step Mode
+            motor_steps = [0] * len(MotorIndex) #
+            motor_steps[MotorIndex.RJR] = int(value) # Based on image: LEFT arrow leads to positive value
+            motor_steps[MotorIndex.RJL] = -int(value) #
+            steps_str = ",".join(map(str, motor_steps)) #
+            cmd = f"MOVE_ALL_MOTORS:{steps_str}" #
+            self.serial_handler.send_command(cmd) #
+            self.log_message(f"Sent D-Pad Step Right Jaw: {value} (Steps: {cmd})") #
+        else: # Degree-Based Mode
+            joint_degree_deltas = {"RJ": float(value)} #
+            self.log_message(f"D-Pad Degree Right Jaw: {value}°") #
+            self._execute_degree_based_move(joint_degree_deltas) #
+            #self.cumulative_rj_degrees_var.set(self.cumulative_rj_degrees_var.get() + value)
+
 
     def _toggle_arduino_verbose_action(self): # Renamed for clarity
         self.serial_handler.send_command("TOGGLE_VERBOSE") #
@@ -482,9 +482,11 @@ class ElbowSimulatorGUI:
                 self.lj_degrees_input_var.set("0.0") #
                 self.rj_degrees_input_var.set("0.0") #
 
+            # Reset common input fields
             self.ep_degrees_input_var.set("0.0") #
             self.ey_degrees_input_var.set("0.0") #
             self.wp_degrees_input_var.set("0.0") #
+            # self.roll_degrees_input_var.set("0.0") # Removed Roll reset
 
         except ValueError:
             messagebox.showerror("Input Error", "Invalid degree value. Please enter numbers only.", parent=self.root) #
@@ -496,6 +498,8 @@ class ElbowSimulatorGUI:
     def _execute_degree_based_move(self, joint_degree_deltas_input): #
         """
         Core logic to calculate and send motor commands based on degree deltas.
+        joint_degree_deltas_input: A dictionary like {"EP": 10.0, "EY": -5.0, ...}
+                                        Only keys for joints to be moved need to be present.
         """
         all_joint_keys = ["EP", "EY", "WP", "LJ", "RJ"] #
         full_joint_degree_deltas = {key: 0.0 for key in all_joint_keys} #

@@ -22,6 +22,7 @@ def get_jaw_pl(delta_theta):
 
 
 def get_steps(curr_theta, delta_theta, latest_dir):
+    print("aug 14 11:04am");
     motor_steps = [0] * len(cf.MotorIndex)  
     if delta_theta == 0:
         return motor_steps, latest_dir
@@ -45,15 +46,19 @@ def get_steps(curr_theta, delta_theta, latest_dir):
         print(f"latest_dir didnt change or dir_comp is off: latest_dir = {latest_dir} delta theta = {delta_theta} and dr comp = {cf.DIR_COMP}")
         print("oopsies")
 
-    ## when I shorten yaw left, i have to shorten left jaw left and right jaw left
+    ## positive ey steps moves us to the right, so we have to lengthen RJR and LJR 
+    ## positive steps_ey --> positive steps RJR LJR
 
-    motor_steps[cf.MotorIndex.EY] = steps_ey
+    motor_steps[MotorIndex.EY] = -steps_ey
 
     steps_q4 = int(get_jaw_pl(delta_theta)*STEPS_TO_MM_LS)
 
-    motor_steps[cf.MotorIndex.RJL] = steps_q4
-    motor_steps[cf.MotorIndex.LJL] = steps_q4
-    motor_steps[cf.MotorIndex.RJR] = -steps_q4
-    motor_steps[cf.MotorIndex.LJR] = -steps_q4
+    # [Q1, Q2, WPD (Q3+), WPU (Q3-), RJL (Q4R+), RJR (Q4R-), LJR (Q4L+), LJL (Q4L-)]
+
+
+    motor_steps[MotorIndex.RJL] = steps_q4
+    motor_steps[MotorIndex.LJL] = steps_q4
+    motor_steps[MotorIndex.RJR] = -steps_q4
+    motor_steps[MotorIndex.LJR] = -steps_q4
 
     return motor_steps, latest_dir
