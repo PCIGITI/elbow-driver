@@ -60,22 +60,22 @@ def get_steps(curr_theta, delta_theta, latest_dir):
     #Positive steps moves Q1 UP 
 
     motor_steps = [0] * len(MotorIndex)  
-    motor_steps[MotorIndex.EP] = steps_q1+epu_comp ##positive step value here will move EP UP , so we want WPD , RJR RJL to lengthen (positive)
+    motor_steps[MotorIndex.EP] = steps_q1+epu_comp ##positive step value here will move EP DOWN , so we want WPD , RJR RJL to lengthen (positive)
 
     #get aux steps
     steps_q3 = int(get_wrist_pl(delta_theta)*(STEPS_TO_MM_LS))
     steps_q4 = int(get_jaw_pl(delta_theta)*STEPS_TO_MM_LS)
     
-    motor_steps[MotorIndex.LJL] = steps_q4 
-    motor_steps[MotorIndex.LJR] = steps_q4
+    motor_steps[MotorIndex.LJL] = -steps_q4 
+    motor_steps[MotorIndex.LJR] = -steps_q4
 
 
-    motor_steps[MotorIndex.RJL] = -steps_q4
-    motor_steps[MotorIndex.RJR] = -steps_q4
+    motor_steps[MotorIndex.RJL] = steps_q4
+    motor_steps[MotorIndex.RJR] = steps_q4
 
 
-    motor_steps[MotorIndex.WPU] = -steps_q3
-    motor_steps[MotorIndex.WPD] = steps_q3
+    motor_steps[MotorIndex.WPU] = steps_q3
+    motor_steps[MotorIndex.WPD] = -steps_q3
     
     return motor_steps, latest_dir
 
