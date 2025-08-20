@@ -54,18 +54,13 @@ class ROSSubscriberThread(threading.Thread):
 
     def run(self):
         """The main execution method of the thread."""
-        self._log_callback("ROS Thread: Initializing node 'elbow_gui_controller'.")
         try:
-            # Initialize the ROS node. anonymous=True ensures the node has a unique name.
-            rospy.init_node('elbow_gui_controller', anonymous=True)
-            # Create a subscriber for the specified topic
+            self._log_callback(f"ROS Thread: Subscribing to topic '{self._topic_name}'.")
             self._subscriber = rospy.Subscriber(self._topic_name, Float64MultiArray, self._ros_callback)
-            self._log_callback(f"ROS Thread: Subscribed to topic '{self._topic_name}'.")
-
-            # rospy.spin() is a blocking call that keeps the script alive to receive messages.
-            # We check our stop condition periodically.
+            
+            # This loop keeps the thread alive to receive messages
             while self._is_running and not rospy.is_shutdown():
-                rospy.sleep(0.1) # Sleep to reduce CPU usage
+                rospy.sleep(0.1)
 
         except rospy.ROSInterruptException:
             self._log_callback("ROS Thread: Shutdown signal received.")
@@ -128,6 +123,7 @@ class ElbowSimulatorGUI:
         self.ros_status_var = tk.StringVar(value="Status: Inactive")
         self.ros_queue = queue.Queue()
         self.ros_thread = None
+        self.ros_node_initialized = False # Flag to ensure rospy.init_node is called only once
 
         #holds the latest direction values for each motor pair, 0 for true neutral, 1 for ccw, -1 for cw
         self.latest_dir = {
@@ -473,7 +469,7 @@ class ElbowSimulatorGUI:
         self.main_content_frame.grid_columnconfigure(0, weight=1) #
         
         # Using a standard tk.Text widget for full color control
-        self.output_text = tk.Text(output_frame, height=10, width=80,
+        self.output_text = tk.Text(output_frame, height=15, width=80,
                                    background=self.BG_COLOR,
                                    foreground=self.FG_COLOR,
                                    insertbackground=self.BORDER_COLOR, # Cursor color
@@ -619,12 +615,29 @@ class ElbowSimulatorGUI:
             self.log_message("ROS mode disabled.")
 
     def _start_ros_subscriber(self):
+        """Initializes ROS node if needed, then starts the subscriber thread."""
         if self.ros_thread and self.ros_thread.is_alive():
             self._stop_ros_subscriber()
+
         topic_name = self.ros_topic_var.get()
         if not topic_name:
             messagebox.showwarning("Input Error", "Please provide a ROS topic name.", parent=self.root)
             return
+
+        # Initialize the ROS node in the main thread, only once.
+        if not self.ros_node_initialized:
+            try:
+                self.log_message("Initializing ROS node for the first time...")
+                # disable_signals=True is crucial to prevent the error in a Tkinter GUI
+                rospy.init_node('elbow_gui_controller', anonymous=True, disable_signals=True)
+                self.ros_node_initialized = True
+                self.log_message("ROS node initialized successfully.")
+            except Exception as e:
+                self.log_message(f"Failed to initialize ROS node: {e}", level="error")
+                self.ros_status_var.set("Status: Node Init Failed")
+                return
+
+        # Now that the node is initialized, start the subscriber thread
         self.ros_status_var.set(f"Status: Subscribing...")
         self.ros_thread = ROSSubscriberThread(topic_name, self.ros_queue, self.log_message)
         self.ros_thread.start()
@@ -802,5 +815,7 @@ class ElbowSimulatorGUI:
     def cleanup_on_exit(self):
         self.log_message("Application exiting. Cleaning up...")
         self._stop_ros_subscriber()
+        if self.ros_node_initialized and IS_ROS_AVAILABLE and not rospy.is_shutdown():
+            rospy.signal_shutdown("GUI is closing")
         self.serial_handler.cleanup()
         self.log_message("Cleanup complete. Goodbye.")
