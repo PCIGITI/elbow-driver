@@ -131,8 +131,9 @@ class ElbowSimulatorGUI:
         
         # --- ROS Variables ---
         self.ros_mode_var = tk.BooleanVar(value=False)
-        self.ros_topic_var = tk.StringVar(value="/joint_commands") # Default topic
+        self.ros_topic_var = tk.StringVar(value="/joint_states") # Default topic
         self.ros_status_var = tk.StringVar(value="Status: Inactive")
+        self.ros_update_freq_ms = tk.IntVar(value=100) # NEW: Update frequency in ms
         self.ros_queue = queue.Queue()
         self.ros_thread = None
         self.ros_node_initialized = False # Flag to ensure rospy.init_node is called only once
@@ -321,7 +322,7 @@ class ElbowSimulatorGUI:
         self.ros_mode_toggle.grid(row=0, column=0, padx=5, pady=5)
 
         ttk.Label(ros_frame, text="TOPIC:").grid(row=0, column=1, padx=(15, 0), pady=5)
-        self.ros_topic_entry = ttk.Entry(ros_frame, textvariable=self.ros_topic_var, width=30, font=self.FONT_HACKER)
+        self.ros_topic_entry = ttk.Entry(ros_frame, textvariable=self.ros_topic_var, width=25, font=self.FONT_HACKER)
         self.ros_topic_entry.grid(row=0, column=2, padx=5, pady=5)
 
         self.ros_subscribe_button = ttk.Button(
@@ -329,13 +330,19 @@ class ElbowSimulatorGUI:
         )
         self.ros_subscribe_button.grid(row=0, column=3, padx=5, pady=5)
 
+        # NEW: Update frequency entry
+        ttk.Label(ros_frame, text="FREQ (ms):").grid(row=0, column=4, padx=(15, 0), pady=5)
+        self.ros_freq_entry = ttk.Entry(ros_frame, textvariable=self.ros_update_freq_ms, width=8, font=self.FONT_HACKER)
+        self.ros_freq_entry.grid(row=0, column=5, padx=5, pady=5)
+
         self.ros_status_label = ttk.Label(ros_frame, textvariable=self.ros_status_var)
-        self.ros_status_label.grid(row=0, column=4, padx=10, pady=5, sticky=tk.W)
+        self.ros_status_label.grid(row=0, column=6, padx=10, pady=5, sticky=tk.W)
         
-        ros_frame.columnconfigure(4, weight=1)
+        ros_frame.columnconfigure(6, weight=1)
 
         self.ros_topic_entry.config(state=tk.DISABLED)
         self.ros_subscribe_button.config(state=tk.DISABLED)
+        self.ros_freq_entry.config(state=tk.DISABLED)
 
     def _create_joint_control_widgets(self, parent_frame):
         """Creates the new joint control UI as requested."""
@@ -617,12 +624,14 @@ class ElbowSimulatorGUI:
                 return
             self.ros_topic_entry.config(state=tk.NORMAL)
             self.ros_subscribe_button.config(state=tk.NORMAL)
+            self.ros_freq_entry.config(state=tk.NORMAL) # Enable freq entry
             self.ros_status_var.set("Status: Ready")
             self.log_message("ROS mode enabled.")
         else:
             self._stop_ros_subscriber() # Stop any active subscription
             self.ros_topic_entry.config(state=tk.DISABLED)
             self.ros_subscribe_button.config(state=tk.DISABLED)
+            self.ros_freq_entry.config(state=tk.DISABLED) # Disable freq entry
             self.ros_status_var.set("Status: Inactive")
             self.log_message("ROS mode disabled.")
 
@@ -685,7 +694,7 @@ class ElbowSimulatorGUI:
         except queue.Empty:
             pass
         finally:
-            self.root.after(100, self._check_ros_queue)
+            self.root.after(self.ros_update_freq_ms.get(), self._check_ros_queue)
 
     def _joint_button_action(self, joint, sign):
         try:
