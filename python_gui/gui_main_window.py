@@ -12,7 +12,8 @@ import queue
 import threading
 try:
     import rospy
-    from std_msgs.msg import Float64MultiArray
+    # NEW: Import JointState message type
+    from sensor_msgs.msg import JointState
     IS_ROS_AVAILABLE = True
 except ImportError:
     IS_ROS_AVAILABLE = False
@@ -34,29 +35,40 @@ class ROSSubscriberThread(threading.Thread):
 
     def _ros_callback(self, msg):
         """Callback function for the ROS subscriber."""
-        # Expected message format: [NA, NA, Q1, Q2, Q3, Q4L] in radians
-        if len(msg.data) >= 6:
-            try:
-                # Convert radians to degrees and create a dictionary of target positions
-                target_positions_deg = {
-                    "Q1": math.degrees(msg.data[2]), # EP
-                    "Q2": math.degrees(msg.data[3]), # EY
-                    "Q3": math.degrees(msg.data[4]), # WP
-                    "Q4L": math.degrees(msg.data[5]), # LJ
-                    "Q4R": -math.degrees(msg.data[5]) # RJ moves equal and opposite
-                }
-                # Put the processed data into the thread-safe queue for the GUI
-                self._data_queue.put(target_positions_deg)
-            except Exception as e:
-                self._log_callback(f"ROS Callback Error: {e}", level="error")
-        else:
-            self._log_callback(f"ROS WARNING: Received message with insufficient data length: {len(msg.data)}", level="warning")
+        # msg is now a sensor_msgs/JointState
+        try:
+            # Create a dictionary mapping joint names to their positions
+            joint_map = dict(zip(msg.name, msg.position))
+
+            # Define the joint names we are looking for
+            required_joints = ["elbow_pitch", "elbow_yaw", "wrist_pitch", "jaw_1"]
+            
+            # Check if all required joints are in the message
+            if not all(joint in joint_map for joint in required_joints):
+                missing = [j for j in required_joints if j not in joint_map]
+                self._log_callback(f"ROS WARNING: Missing joints in message: {missing}", level="warning")
+                return
+
+            # Convert radians to degrees and create a dictionary of target positions
+            target_positions_deg = {
+                "Q1": math.degrees(joint_map["elbow_pitch"]),
+                "Q2": math.degrees(joint_map["elbow_yaw"]),
+                "Q3": math.degrees(joint_map["wrist_pitch"]),
+                "Q4L": math.degrees(joint_map["jaw_1"]),
+                "Q4R": -math.degrees(joint_map["jaw_1"]) # RJ moves equal and opposite
+            }
+            # Put the processed data into the thread-safe queue for the GUI
+            self._data_queue.put(target_positions_deg)
+
+        except Exception as e:
+            self._log_callback(f"ROS Callback Error: {e}", level="error")
 
     def run(self):
         """The main execution method of the thread."""
         try:
             self._log_callback(f"ROS Thread: Subscribing to topic '{self._topic_name}'.")
-            self._subscriber = rospy.Subscriber(self._topic_name, Float64MultiArray, self._ros_callback)
+            # NEW: Subscribe to JointState message type
+            self._subscriber = rospy.Subscriber(self._topic_name, JointState, self._ros_callback)
             
             # This loop keeps the thread alive to receive messages
             while self._is_running and not rospy.is_shutdown():
