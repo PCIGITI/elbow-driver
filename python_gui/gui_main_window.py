@@ -31,7 +31,7 @@ class ROSSubscriberThread(threading.Thread):
         self._data_queue = data_queue
         self._log_callback = log_callback
         self._subscriber = None
-        self._is_running = True
+        self._stop_event = threading.Event() # Use a threading.Event for safe signaling
 
     def _ros_callback(self, msg):
         """Callback function for the ROS subscriber."""
@@ -75,9 +75,10 @@ class ROSSubscriberThread(threading.Thread):
             self._log_callback(f"ROS Thread: Subscribing to topic '{self._topic_name}'.")
             self._subscriber = rospy.Subscriber(self._topic_name, JointState, self._ros_callback)
             
-            # This loop keeps the thread alive to receive messages
-            while self._is_running and not rospy.is_shutdown():
-                rospy.sleep(0.1)
+            # Loop until the stop event is set
+            while not self._stop_event.is_set() and not rospy.is_shutdown():
+                # wait() with a timeout acts like a sleep but is interruptible
+                self._stop_event.wait(0.1)
 
         except rospy.ROSInterruptException:
             self._log_callback("ROS Thread: Shutdown signal received.")
@@ -93,7 +94,7 @@ class ROSSubscriberThread(threading.Thread):
     def stop(self):
         """Signals the thread's run loop to terminate."""
         self._log_callback("ROS Thread: Stop signal received.")
-        self._is_running = False
+        self._stop_event.set()
 
 
 class ElbowSimulatorGUI:
@@ -717,35 +718,43 @@ class ElbowSimulatorGUI:
     def _stop_ros_subscriber(self):
         if self.ros_thread and self.ros_thread.is_alive():
             self.ros_thread.stop()
-            self.ros_thread.join(timeout=1)
+            self.ros_thread.join(timeout=2) # Wait up to 2 seconds for graceful shutdown
+            if self.ros_thread.is_alive():
+                self.log_message("ROS thread did not shut down gracefully.", level="warning")
             self.ros_thread = None
             self.ros_status_var.set("Status: Standby")
             self.log_message("ROS subscription stopped.")
 
     def _check_ros_queue(self):
-        try:
-            target_positions = self.ros_queue.get_nowait()
-            self.log_message(f"ROS Command Received: Target {target_positions}")
-            current_abs_positions = {
-                "EP": self.cumulative_ep_degrees_var.get(),
-                "EY": self.cumulative_ey_degrees_var.get(),
-                "WP": self.cumulative_wp_degrees_var.get(),
-                "LJ": self.cumulative_lj_degrees_var.get(),
-                "RJ": self.cumulative_rj_degrees_var.get(),
-            }
-            joint_degree_deltas = {
-                "EP": target_positions["Q1"] - current_abs_positions["EP"],
-                "EY": target_positions["Q2"] - current_abs_positions["EY"],
-                "WP": target_positions["Q3"] - current_abs_positions["WP"],
-                "LJ": target_positions["Q4L"] - current_abs_positions["LJ"],
-                "RJ": target_positions["Q4R"] - current_abs_positions["RJ"],
-            }
-            self.log_message(f"Calculated Deltas: {joint_degree_deltas}")
-            self._execute_degree_based_move(joint_degree_deltas)
-        except queue.Empty:
-            pass
-        finally:
-            self.root.after(self.ros_update_freq_ms.get(), self._check_ros_queue)
+        """Processes all messages in the queue for real-time control."""
+        while not self.ros_queue.empty():
+            try:
+                target_positions = self.ros_queue.get_nowait()
+                # self.log_message(f"ROS Command Received: Target {target_positions}")
+                current_abs_positions = {
+                    "EP": self.cumulative_ep_degrees_var.get(),
+                    "EY": self.cumulative_ey_degrees_var.get(),
+                    "WP": self.cumulative_wp_degrees_var.get(),
+                    "LJ": self.cumulative_lj_degrees_var.get(),
+                    "RJ": self.cumulative_rj_degrees_var.get(),
+                }
+                joint_degree_deltas = {
+                    "EP": target_positions["Q1"] - current_abs_positions["EP"],
+                    "EY": target_positions["Q2"] - current_abs_positions["EY"],
+                    "WP": target_positions["Q3"] - current_abs_positions["WP"],
+                    "LJ": target_positions["Q4L"] - current_abs_positions["LJ"],
+                    "RJ": target_positions["Q4R"] - current_abs_positions["RJ"],
+                }
+                # self.log_message(f"Calculated Deltas: {joint_degree_deltas}")
+                self._execute_degree_based_move(joint_degree_deltas)
+            except queue.Empty:
+                # This can happen in a race condition, it's safe to just break the loop
+                break
+            except Exception as e:
+                self.log_message(f"Error processing ROS queue: {e}", level="error")
+        
+        # Schedule the next check
+        self.root.after(self.ros_update_freq_ms.get(), self._check_ros_queue)
 
     def _joint_button_action(self, joint, sign):
         try:
@@ -847,20 +856,20 @@ class ElbowSimulatorGUI:
         for joint_name, (curr_theta, delta_theta, get_steps_function, latest_dir) in joint_processors.items():
             if delta_theta != 0:
                 try:
-                    self.log_message(f"Calculating for {joint_name}: current={curr_theta:.2f}°, delta={delta_theta:.2f}°")
+                    # self.log_message(f"Calculating for {joint_name}: current={curr_theta:.2f}°, delta={delta_theta:.2f}°")
                     joint_specific_motor_steps, self.latest_dir[joint_name] = get_steps_function(curr_theta, delta_theta, latest_dir)
                     for motor_idx_enum in MotorIndex:
                         total_motor_steps[motor_idx_enum.value] += joint_specific_motor_steps[motor_idx_enum.value]
-                    self.log_message(f"  Steps from {joint_name}: {joint_specific_motor_steps}")
+                    # self.log_message(f"  Steps from {joint_name}: {joint_specific_motor_steps}")
                 except Exception as e:
                     self.log_message(f"  Error in {get_steps_function.__name__} for {joint_name}: {e}", level="error")
                     import traceback; self.log_message(traceback.format_exc(), level="error")
         final_integer_steps = [int(round(s)) for s in total_motor_steps]
-        self.log_message(f"Final Combined Steps: {final_integer_steps}")
+        # self.log_message(f"Final Combined Steps: {final_integer_steps}")
         steps_str = ",".join(map(str, final_integer_steps))
         cmd = f"MOVE_ALL_MOTORS:{steps_str}"
         if self.serial_handler.send_command(cmd):
-            self.log_message(f"Command: {cmd}", level="sent")
+            # self.log_message(f"Command: {cmd}", level="sent")
             if full_joint_degree_deltas["EP"] != 0: self.cumulative_ep_degrees_var.set(round(current_abs_positions["EP"] + full_joint_degree_deltas["EP"], 2))
             if full_joint_degree_deltas["EY"] != 0: self.cumulative_ey_degrees_var.set(round(current_abs_positions["EY"] + full_joint_degree_deltas["EY"], 2))
             if full_joint_degree_deltas["WP"] != 0: self.cumulative_wp_degrees_var.set(round(current_abs_positions["WP"] + full_joint_degree_deltas["WP"], 2))
