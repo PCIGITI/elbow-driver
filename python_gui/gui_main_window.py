@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import math
+from datetime import datetime
 
 import config # For constants, MotorIndex
 from config import MotorIndex #
@@ -15,7 +16,7 @@ try:
     IS_ROS_AVAILABLE = True
 except ImportError:
     IS_ROS_AVAILABLE = False
-    
+
 # --- Helper Class for ROS Communication ---
 
 class ROSSubscriberThread(threading.Thread):
@@ -47,9 +48,9 @@ class ROSSubscriberThread(threading.Thread):
                 # Put the processed data into the thread-safe queue for the GUI
                 self._data_queue.put(target_positions_deg)
             except Exception as e:
-                self._log_callback(f"ROS Callback Error: {e}")
+                self._log_callback(f"ROS Callback Error: {e}", level="error")
         else:
-            self._log_callback(f"ROS WARNING: Received message with insufficient data length: {len(msg.data)}")
+            self._log_callback(f"ROS WARNING: Received message with insufficient data length: {len(msg.data)}", level="warning")
 
     def run(self):
         """The main execution method of the thread."""
@@ -60,7 +61,7 @@ class ROSSubscriberThread(threading.Thread):
             # Create a subscriber for the specified topic
             self._subscriber = rospy.Subscriber(self._topic_name, Float64MultiArray, self._ros_callback)
             self._log_callback(f"ROS Thread: Subscribed to topic '{self._topic_name}'.")
-            
+
             # rospy.spin() is a blocking call that keeps the script alive to receive messages.
             # We check our stop condition periodically.
             while self._is_running and not rospy.is_shutdown():
@@ -69,7 +70,7 @@ class ROSSubscriberThread(threading.Thread):
         except rospy.ROSInterruptException:
             self._log_callback("ROS Thread: Shutdown signal received.")
         except Exception as e:
-            self._log_callback(f"ROS Thread: An error occurred: {e}")
+            self._log_callback(f"ROS Thread: An error occurred: {e}", level="error")
         finally:
             self._log_callback("ROS Thread: Exiting.")
 
@@ -88,6 +89,9 @@ class ElbowSimulatorGUI:
 
         self.root.title(config.APP_TITLE) #
         self.root.geometry(config.MAIN_WINDOW_GEOMETRY) #
+        
+        # --- NEW: Setup Cyberpunk Theme ---
+        self._setup_cyberpunk_style()
 
         self.serial_handler.set_callbacks( #
             data_callback=self._handle_serial_data, #
@@ -140,19 +144,104 @@ class ElbowSimulatorGUI:
         self._update_control_mode_ui() # Initialize new control UI
         self._check_ros_queue() # Start the loop to check for ROS messages
 
-        self.log_message(f"{config.APP_TITLE} initialized.") #
+        self.log_message(f"// {config.APP_TITLE} INITIALIZED //", level="info")
+
+    def _setup_cyberpunk_style(self):
+        """Configures the ttk styles for a cyberpunk hacker theme."""
+        # --- Color Palette & Fonts ---
+        self.BG_COLOR = "#0D0208"       # Near-black purple
+        self.FG_COLOR = "#00FF9B"       # Bright neon mint/cyan
+        self.TEXT_COLOR = "#EAEAEA"     # Off-white
+        self.ALT_BG_COLOR = "#1a1a1a"   # Dark gray for entry fields/buttons
+        self.BORDER_COLOR = "#FF00FF"   # Magenta for highlights
+        
+        self.INFO_COLOR = "#00FF9B"     # Neon Mint
+        self.SENT_COLOR = "#00BFFF"     # Deep Sky Blue
+        self.RECEIVED_COLOR = "#F0E68C" # Khaki/Yellowish
+        self.ERROR_COLOR = "#FF4136"    # Red
+        self.WARNING_COLOR = "#FF851B"  # Orange
+        self.TIMESTAMP_COLOR = "#888888" # Gray
+
+        self.FONT_HACKER = ("Consolas", 11)
+        self.FONT_HACKER_BOLD = ("Consolas", 11, "bold")
+
+        # --- Style Configuration ---
+        style = ttk.Style(self.root)
+        self.root.configure(background=self.BG_COLOR)
+        style.theme_use('clam')
+
+        # --- Base element styles ---
+        style.configure('.',
+                        background=self.BG_COLOR,
+                        foreground=self.TEXT_COLOR,
+                        font=self.FONT_HACKER,
+                        fieldbackground=self.ALT_BG_COLOR,
+                        borderwidth=0,
+                        lightcolor=self.BORDER_COLOR,
+                        darkcolor=self.BG_COLOR)
+
+        # --- Frame styles ---
+        style.configure('TFrame', background=self.BG_COLOR)
+        style.configure('TLabelframe',
+                        background=self.BG_COLOR,
+                        borderwidth=1,
+                        relief="solid")
+        style.configure('TLabelframe.Label',
+                        background=self.BG_COLOR,
+                        foreground=self.FG_COLOR,
+                        font=self.FONT_HACKER_BOLD)
+
+        # --- Button styles ---
+        style.configure('TButton',
+                        background=self.ALT_BG_COLOR,
+                        foreground=self.FG_COLOR,
+                        font=self.FONT_HACKER_BOLD,
+                        borderwidth=1,
+                        relief='flat',
+                        padding=6)
+        style.map('TButton',
+                  background=[('active', self.FG_COLOR), ('pressed', self.FG_COLOR)],
+                  foreground=[('active', self.BG_COLOR), ('pressed', self.BG_COLOR)])
+
+        # --- Checkbutton (Toolbutton style) ---
+        style.configure('Toolbutton',
+                        background=self.ALT_BG_COLOR,
+                        foreground=self.FG_COLOR,
+                        font=self.FONT_HACKER,
+                        padding=6,
+                        relief='flat')
+        style.map('Toolbutton',
+                  background=[('selected', self.BORDER_COLOR), ('active', self.FG_COLOR)],
+                  foreground=[('selected', self.TEXT_COLOR), ('active', self.BG_COLOR)])
+
+        # --- Entry widget style ---
+        style.configure('TEntry',
+                        fieldbackground=self.ALT_BG_COLOR,
+                        foreground=self.FG_COLOR,
+                        insertcolor=self.FG_COLOR, # Cursor color
+                        borderwidth=1,
+                        relief='flat')
+                        
+        # --- Scrollbar style ---
+        style.configure('Vertical.TScrollbar',
+                background=self.ALT_BG_COLOR,
+                troughcolor=self.BG_COLOR,
+                borderwidth=0,
+                arrowcolor=self.FG_COLOR)
+        style.map('Vertical.TScrollbar',
+                background=[('active', self.FG_COLOR)])
 
     def _setup_main_layout(self): #
-        self.canvas = tk.Canvas(self.root, borderwidth=0, background="#f0f0f0") #
-        self.v_scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=self.canvas.yview) #
+        self.canvas = tk.Canvas(self.root, borderwidth=0, background=self.BG_COLOR, highlightthickness=0)
+        self.v_scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=self.canvas.yview, style='Vertical.TScrollbar')
         self.canvas.configure(yscrollcommand=self.v_scrollbar.set) #
         self.v_scrollbar.pack(side="right", fill="y") #
         self.canvas.pack(side="left", fill="both", expand=True) #
 
-        self.container_frame = ttk.Frame(self.canvas) #
+        self.container_frame = ttk.Frame(self.canvas, style='TFrame')
         self.main_frame_id = self.canvas.create_window((0, 0), window=self.container_frame, anchor="nw") #
 
-        self.main_content_frame = ttk.Frame(self.container_frame, padding="10") #
+        self.main_content_frame = ttk.Frame(self.container_frame, padding="10", style='TFrame')
         self.main_content_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S)) #
         self.container_frame.columnconfigure(0, weight=1) #
 
@@ -166,344 +255,291 @@ class ElbowSimulatorGUI:
         self.canvas.itemconfig(self.main_frame_id, width=event.width) #
 
     def _create_widgets(self): #
-        # Row 0: Connection
-        conn_frame = ttk.LabelFrame(self.main_content_frame, text="Arduino Connection", padding="5") #
-        conn_frame.grid(row=0, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5) #
-        ttk.Label(conn_frame, text="Port:").grid(row=0, column=0, padx=5, pady=5) #
-        self.port_entry = ttk.Entry(conn_frame, width=10) #
-        self.port_entry.insert(0, config.DEFAULT_SERIAL_PORT) #
-        self.port_entry.grid(row=0, column=1, padx=5, pady=5) #
-        self.connect_button = ttk.Button(conn_frame, text="Connect", command=self._toggle_connection_action) #
-        self.connect_button.grid(row=0, column=2, padx=5, pady=5) #
-        self.status_label = ttk.Label(conn_frame, text="Status: Disconnected") #
-        self.status_label.grid(row=0, column=3, padx=5, pady=5, sticky=tk.W) #
-        conn_frame.columnconfigure(3, weight=1) #
+        # Top frame to hold Connection and System Ops side-by-side
+        top_frame = ttk.Frame(self.main_content_frame)
+        top_frame.grid(row=0, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        top_frame.columnconfigure(0, weight=1)
+        top_frame.columnconfigure(1, weight=1)
 
-        # Row 1: NEW Joint Controls (Replaces D-Pads)
-        self._create_joint_control_widgets(self.main_content_frame)
+        # Column 0: Connection
+        conn_frame = ttk.LabelFrame(top_frame, text="<CONNECTION_LINK>", padding="10")
+        conn_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
+        ttk.Label(conn_frame, text="PORT:").grid(row=0, column=0, padx=5, pady=5)
+        self.port_entry = ttk.Entry(conn_frame, width=12, font=self.FONT_HACKER)
+        self.port_entry.insert(0, config.DEFAULT_SERIAL_PORT)
+        self.port_entry.grid(row=0, column=1, padx=5, pady=5)
+        self.connect_button = ttk.Button(conn_frame, text="[CONNECT]", command=self._toggle_connection_action)
+        self.connect_button.grid(row=0, column=2, padx=5, pady=5)
+        self.status_label = ttk.Label(conn_frame, text="STATUS: STANDBY")
+        self.status_label.grid(row=0, column=3, padx=10, pady=5, sticky=tk.W)
+        conn_frame.columnconfigure(3, weight=1)
 
-        # Row 2: System Commands
-        sys_cmd_frame = ttk.LabelFrame(self.main_content_frame, text="System Commands", padding="5") #
-        sys_cmd_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10) #
-        
-        self.verbose_button = ttk.Button(sys_cmd_frame, text="Toggle Verbose (OFF)", command=self._toggle_arduino_verbose_action) #
-        self.verbose_button.grid(row=0, column=0, padx=5, pady=5) #
-        
+        # Column 1: System Commands
+        sys_cmd_frame = ttk.LabelFrame(top_frame, text="<SYSTEM_OPS>", padding="10")
+        sys_cmd_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
+        self.verbose_button = ttk.Button(sys_cmd_frame, text="VERBOSITY: OFF", command=self._toggle_arduino_verbose_action)
+        self.verbose_button.grid(row=0, column=0, padx=5, pady=5)
         self.wrist_yaw_mode_button = ttk.Checkbutton(
             sys_cmd_frame,
-            text="Jaws Mode",  # Initial text, will be updated by _update_jaw_mode_ui
-            variable=self.wrist_yaw_mode_var, 
+            text="MODE: JAWS",
+            variable=self.wrist_yaw_mode_var,
             command=self._update_jaw_mode_ui,
             style="Toolbutton"
         )
-        self.wrist_yaw_mode_button.grid(row=0, column=1, padx=5, pady=5) 
-        
-        sys_cmd_frame.columnconfigure(1, weight=1) # Adjusted column weight
+        self.wrist_yaw_mode_button.grid(row=0, column=1, padx=15, pady=5)
+        sys_cmd_frame.columnconfigure(1, weight=1)
 
-        # Row 3: ROS Control Frame
+        # Row 1: Joint Controls
+        self._create_joint_control_widgets(self.main_content_frame)
+
+        # Row 2: ROS Control Frame
         self._create_ros_control_widgets(self.main_content_frame)
 
-        # Row 4: Inline Positional Control Frame
-        self._create_positional_control_frame_widgets(self.main_content_frame) #
+        # Row 3: Inline Positional Control Frame
+        self._create_positional_control_frame_widgets(self.main_content_frame)
     
     def _create_ros_control_widgets(self, parent_frame):
         """Creates the widgets for the ROS control feature."""
-        ros_frame = ttk.LabelFrame(parent_frame, text="ROS Control", padding="10")
-        ros_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+        ros_frame = ttk.LabelFrame(parent_frame, text="<ROS_INTERFACE>", padding="10")
+        ros_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
 
-        # Toggle button for ROS mode
         self.ros_mode_toggle = ttk.Checkbutton(
             ros_frame,
-            text="ROS Mode",
+            text="ROS_MODE",
             variable=self.ros_mode_var,
             command=self._toggle_ros_mode,
             style="Toolbutton"
         )
         self.ros_mode_toggle.grid(row=0, column=0, padx=5, pady=5)
 
-        ttk.Label(ros_frame, text="Topic:").grid(row=0, column=1, padx=(10, 0), pady=5)
-        self.ros_topic_entry = ttk.Entry(ros_frame, textvariable=self.ros_topic_var, width=30)
+        ttk.Label(ros_frame, text="TOPIC:").grid(row=0, column=1, padx=(15, 0), pady=5)
+        self.ros_topic_entry = ttk.Entry(ros_frame, textvariable=self.ros_topic_var, width=30, font=self.FONT_HACKER)
         self.ros_topic_entry.grid(row=0, column=2, padx=5, pady=5)
 
         self.ros_subscribe_button = ttk.Button(
-            ros_frame, text="Subscribe", command=self._start_ros_subscriber
+            ros_frame, text="[SUBSCRIBE]", command=self._start_ros_subscriber
         )
         self.ros_subscribe_button.grid(row=0, column=3, padx=5, pady=5)
 
         self.ros_status_label = ttk.Label(ros_frame, textvariable=self.ros_status_var)
         self.ros_status_label.grid(row=0, column=4, padx=10, pady=5, sticky=tk.W)
         
-        ros_frame.columnconfigure(4, weight=1) # Allow status label to expand
+        ros_frame.columnconfigure(4, weight=1)
 
-        # Initially disable ROS-specific widgets
         self.ros_topic_entry.config(state=tk.DISABLED)
         self.ros_subscribe_button.config(state=tk.DISABLED)
 
-    def _toggle_ros_mode(self):
-        """Handles enabling or disabling ROS mode."""
-        is_ros_mode = self.ros_mode_var.get()
-        
-        if is_ros_mode:
-            if not IS_ROS_AVAILABLE:
-                messagebox.showerror("ROS Not Found", "The 'rospy' library is not installed. Please install ROS and its Python bindings to use this feature.", parent=self.root)
-                self.ros_mode_var.set(False) # Revert the checkbox
-                return
-
-            self.ros_topic_entry.config(state=tk.NORMAL)
-            self.ros_subscribe_button.config(state=tk.NORMAL)
-            self.ros_status_var.set("Status: Ready to Subscribe")
-            self.log_message("ROS mode enabled.")
-            # Optionally, disable other manual controls to prevent conflicts
-        else:
-            self._stop_ros_subscriber() # Stop any active subscription
-            self.ros_topic_entry.config(state=tk.DISABLED)
-            self.ros_subscribe_button.config(state=tk.DISABLED)
-            self.ros_status_var.set("Status: Inactive")
-            self.log_message("ROS mode disabled.")
-            
-    def _start_ros_subscriber(self):
-        """Starts the ROS subscriber thread."""
-        if self.ros_thread and self.ros_thread.is_alive():
-            self._stop_ros_subscriber() # Stop previous thread first
-
-        topic_name = self.ros_topic_var.get()
-        if not topic_name:
-            messagebox.showwarning("Input Error", "Please provide a ROS topic name.", parent=self.root)
-            return
-        
-        self.ros_status_var.set(f"Status: Subscribing to {topic_name}...")
-        self.ros_thread = ROSSubscriberThread(topic_name, self.ros_queue, self.log_message)
-        self.ros_thread.start()
-
-    def _stop_ros_subscriber(self):
-        """Stops the ROS subscriber thread if it's running."""
-        if self.ros_thread and self.ros_thread.is_alive():
-            self.ros_thread.stop()
-            self.ros_thread.join(timeout=1) # Wait for the thread to finish
-            self.ros_thread = None
-            self.ros_status_var.set("Status: Subscription stopped.")
-            self.log_message("ROS subscription stopped.")
-
-    def _check_ros_queue(self):
-        """Periodically checks the queue for new messages from the ROS thread."""
-        try:
-            target_positions = self.ros_queue.get_nowait()
-            self.log_message(f"ROS Command Received: Target Positions {target_positions}")
-            
-            # Get current absolute positions from the GUI
-            current_abs_positions = {
-                "EP": self.cumulative_ep_degrees_var.get(),
-                "EY": self.cumulative_ey_degrees_var.get(),
-                "WP": self.cumulative_wp_degrees_var.get(),
-                "LJ": self.cumulative_lj_degrees_var.get(),
-                "RJ": self.cumulative_rj_degrees_var.get(),
-            }
-
-            # Calculate the delta needed to reach the target from the current position
-            joint_degree_deltas = {
-                "EP": target_positions["Q1"] - current_abs_positions["EP"],
-                "EY": target_positions["Q2"] - current_abs_positions["EY"],
-                "WP": target_positions["Q3"] - current_abs_positions["WP"],
-                "LJ": target_positions["Q4L"] - current_abs_positions["LJ"],
-                "RJ": target_positions["Q4R"] - current_abs_positions["RJ"],
-            }
-            
-            self.log_message(f"Calculated Deltas for Move: {joint_degree_deltas}")
-            self._execute_degree_based_move(joint_degree_deltas)
-
-        except queue.Empty:
-            # No new message, which is the normal case
-            pass
-        finally:
-            # Schedule this method to run again after 100ms
-            self.root.after(100, self._check_ros_queue)
-
     def _create_joint_control_widgets(self, parent_frame):
         """Creates the new joint control UI as requested."""
-        joint_super_frame = ttk.LabelFrame(parent_frame, text="Joint Controls", padding="10")
+        joint_super_frame = ttk.LabelFrame(parent_frame, text="<MANUAL_JOINT_CONTROL>", padding="10")
         joint_super_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
-        joint_super_frame.columnconfigure(0, weight=1) # Center the content
+        joint_super_frame.columnconfigure(0, weight=1)
 
-        # --- Top row: Mode, Input, and Individual Toggle ---
         top_controls_frame = ttk.Frame(joint_super_frame)
         top_controls_frame.pack(pady=5, padx=5)
 
         self.control_mode_button = ttk.Checkbutton(
             top_controls_frame,
-            text="Mode: Degrees",
+            text="MODE: DEGREES",
             variable=self.control_mode_is_degrees_var,
             command=self._update_control_mode_ui,
             style="Toolbutton"
         )
         self.control_mode_button.pack(side=tk.LEFT, padx=(0, 15))
 
-        ttk.Label(top_controls_frame, text="Value:").pack(side=tk.LEFT, padx=(0, 5))
-        self.step_degree_entry = ttk.Entry(top_controls_frame, textvariable=self.step_degree_input_var, width=10)
+        ttk.Label(top_controls_frame, text="VALUE:").pack(side=tk.LEFT, padx=(0, 5))
+        self.step_degree_entry = ttk.Entry(top_controls_frame, textvariable=self.step_degree_input_var, width=10, font=self.FONT_HACKER)
         self.step_degree_entry.pack(side=tk.LEFT, padx=(0, 15))
 
         self.individual_motor_toggle = ttk.Checkbutton(
             top_controls_frame,
-            text="Individual Motor Control",
+            text="INDIVIDUAL_MOTOR_CTRL",
             variable=self.individual_motor_mode_var,
             style="Toolbutton",
             command=self._on_individual_motor_toggle
         )
         self.individual_motor_toggle.pack(side=tk.LEFT, padx=(0, 10))
 
-        # --- Joint Buttons ---
         joints_frame = ttk.Frame(joint_super_frame, padding="5")
         joints_frame.pack(pady=(10,0))
 
-        # Define joint data
         joint_data = [
             ("Q1 (Elbow Pitch)", "Q1"),
             ("Q2 (Elbow Yaw)", "Q2"),
             ("Q3 (Wrist Pitch)", "Q3"),
         ]
 
-        # Create Q1, Q2, Q3 rows
         for i, (label, joint_id) in enumerate(joint_data):
-            neg_btn = ttk.Button(joints_frame, text="-", width=4, command=lambda j=joint_id: self._joint_button_action(j, -1))
+            neg_btn = ttk.Button(joints_frame, text="[-]", width=4, command=lambda j=joint_id: self._joint_button_action(j, -1))
             neg_btn.grid(row=i, column=0, padx=5, pady=2)
-            ttk.Label(joints_frame, text=label, width=20, anchor="center").grid(row=i, column=1)
-            ttk.Button(joints_frame, text="+", width=4, command=lambda j=joint_id: self._joint_button_action(j, 1)).grid(row=i, column=2, padx=5, pady=2)
+            ttk.Label(joints_frame, text=label, width=22, anchor="center").grid(row=i, column=1)
+            ttk.Button(joints_frame, text="[+]", width=4, command=lambda j=joint_id: self._joint_button_action(j, 1)).grid(row=i, column=2, padx=5, pady=2)
             
             if joint_id == "Q1": self.q1_neg_button = neg_btn
             if joint_id == "Q2": self.q2_neg_button = neg_btn
 
-        # Q4 Frame for Jaws
         q4_frame = ttk.Frame(joints_frame)
         q4_frame.grid(row=len(joint_data), column=0, columnspan=3, pady=5)
 
-        # Q4L
-        ttk.Button(q4_frame, text="-", width=4, command=lambda: self._joint_button_action("Q4L", -1)).grid(row=0, column=0)
+        ttk.Button(q4_frame, text="[-]", width=4, command=lambda: self._joint_button_action("Q4L", -1)).grid(row=0, column=0)
         ttk.Label(q4_frame, text="Q4L", anchor="center").grid(row=0, column=1, padx=(2, 8))
-        ttk.Button(q4_frame, text="+", width=4, command=lambda: self._joint_button_action("Q4L", 1)).grid(row=0, column=2)
+        ttk.Button(q4_frame, text="[+]", width=4, command=lambda: self._joint_button_action("Q4L", 1)).grid(row=0, column=2)
 
-        # Spacer
         ttk.Label(q4_frame, text=" (Jaws) ", anchor="center").grid(row=0, column=3, padx=15)
 
-        # Q4R - Note the button order from the prompt
-        ttk.Button(q4_frame, text="+", width=4, command=lambda: self._joint_button_action("Q4R", 1)).grid(row=0, column=4)
+        ttk.Button(q4_frame, text="[+]", width=4, command=lambda: self._joint_button_action("Q4R", 1)).grid(row=0, column=4)
         ttk.Label(q4_frame, text="Q4R", anchor="center").grid(row=0, column=5, padx=(2, 8))
-        ttk.Button(q4_frame, text="-", width=4, command=lambda: self._joint_button_action("Q4R", -1)).grid(row=0, column=6)
+        ttk.Button(q4_frame, text="[-]", width=4, command=lambda: self._joint_button_action("Q4R", -1)).grid(row=0, column=6)
 
     def _create_positional_control_frame_widgets(self, parent_frame): #
-        positional_super_frame = ttk.LabelFrame(parent_frame, text="Positional Control (Dedicated Input Fields)", padding="10") #
-        positional_super_frame.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10) #
+        positional_super_frame = ttk.LabelFrame(parent_frame, text="<POSITIONAL_CONTROL>", padding="10")
+        positional_super_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10) #
 
-        # "Move by Degrees" frame
-        input_frame = ttk.LabelFrame(positional_super_frame, text="Move by Degrees", padding="10") #
-        input_frame.grid(row=0, column=0, padx=5, pady=5, sticky="ns") # Gridded to be on the left
+        input_frame = ttk.LabelFrame(positional_super_frame, text="<Move by Degrees>", padding="10")
+        input_frame.grid(row=0, column=0, padx=5, pady=5, sticky="ns") #
 
         row_idx = 0
-        ttk.Label(input_frame, text="Elbow Pitch (°):").grid(row=row_idx, column=0, sticky="w", pady=2) #
-        self.ep_degrees_entry = ttk.Entry(input_frame, textvariable=self.ep_degrees_input_var, width=10) #
-        self.ep_degrees_entry.grid(row=row_idx, column=1, pady=2) #
+        ttk.Label(input_frame, text="Elbow Pitch (°):").grid(row=row_idx, column=0, sticky="w", pady=3)
+        self.ep_degrees_entry = ttk.Entry(input_frame, textvariable=self.ep_degrees_input_var, width=10, font=self.FONT_HACKER)
+        self.ep_degrees_entry.grid(row=row_idx, column=1, pady=3) #
         row_idx += 1
 
-        ttk.Label(input_frame, text="Elbow Yaw (°):").grid(row=row_idx, column=0, sticky="w", pady=2) #
-        self.ey_degrees_entry = ttk.Entry(input_frame, textvariable=self.ey_degrees_input_var, width=10) #
-        self.ey_degrees_entry.grid(row=row_idx, column=1, pady=2) #
+        ttk.Label(input_frame, text="Elbow Yaw (°):").grid(row=row_idx, column=0, sticky="w", pady=3)
+        self.ey_degrees_entry = ttk.Entry(input_frame, textvariable=self.ey_degrees_input_var, width=10, font=self.FONT_HACKER)
+        self.ey_degrees_entry.grid(row=row_idx, column=1, pady=3) #
         row_idx += 1
 
-        ttk.Label(input_frame, text="Wrist Pitch (°):").grid(row=row_idx, column=0, sticky="w", pady=2) #
-        self.wp_degrees_entry = ttk.Entry(input_frame, textvariable=self.wp_degrees_input_var, width=10) #
-        self.wp_degrees_entry.grid(row=row_idx, column=1, pady=2) #
+        ttk.Label(input_frame, text="Wrist Pitch (°):").grid(row=row_idx, column=0, sticky="w", pady=3)
+        self.wp_degrees_entry = ttk.Entry(input_frame, textvariable=self.wp_degrees_input_var, width=10, font=self.FONT_HACKER)
+        self.wp_degrees_entry.grid(row=row_idx, column=1, pady=3) #
         row_idx += 1
         
         self.lj_target_row = row_idx
         self.rj_target_row = row_idx + 1 
 
         self.wrist_yaw_label = ttk.Label(input_frame, text="Wrist Yaw (°):")
-        self.wrist_yaw_entry = ttk.Entry(input_frame, textvariable=self.wrist_yaw_degrees_var, width=10)
+        self.wrist_yaw_entry = ttk.Entry(input_frame, textvariable=self.wrist_yaw_degrees_var, width=10, font=self.FONT_HACKER)
 
         self.lj_label = ttk.Label(input_frame, text="Left Jaw (°):") #
-        self.lj_degrees_entry = ttk.Entry(input_frame, textvariable=self.lj_degrees_input_var, width=10) #
-        self.lj_label.grid(row=self.lj_target_row, column=0, sticky="w", pady=2) #
-        self.lj_degrees_entry.grid(row=self.lj_target_row, column=1, pady=2) #
+        self.lj_degrees_entry = ttk.Entry(input_frame, textvariable=self.lj_degrees_input_var, width=10, font=self.FONT_HACKER)
+        self.lj_label.grid(row=self.lj_target_row, column=0, sticky="w", pady=3) #
+        self.lj_degrees_entry.grid(row=self.lj_target_row, column=1, pady=3) #
         row_idx +=1 
 
         self.rj_label = ttk.Label(input_frame, text="Right Jaw (°):") #
-        self.rj_degrees_entry = ttk.Entry(input_frame, textvariable=self.rj_degrees_input_var, width=10) #
-        self.rj_label.grid(row=self.rj_target_row, column=0, sticky="w", pady=2) #
-        self.rj_degrees_entry.grid(row=self.rj_target_row, column=1, pady=2) #
+        self.rj_degrees_entry = ttk.Entry(input_frame, textvariable=self.rj_degrees_input_var, width=10, font=self.FONT_HACKER)
+        self.rj_label.grid(row=self.rj_target_row, column=0, sticky="w", pady=3) #
+        self.rj_degrees_entry.grid(row=self.rj_target_row, column=1, pady=3) #
         row_idx +=1 
 
 
-        ttk.Button(input_frame, text="Move Joints by Degrees", command=self._dedicated_move_by_degrees_action, width=25).grid(row=row_idx, column=0, columnspan=2, pady=10) #
+        ttk.Button(input_frame, text="[EXECUTE_MOVE]", command=self._dedicated_move_by_degrees_action, width=25).grid(row=row_idx, column=0, columnspan=2, pady=10) #
 
-        # "Cumulative Joint Position" frame
-        cumulative_frame = ttk.LabelFrame(positional_super_frame, text="Cumulative Joint Position (Degrees from Ref)", padding="10") #
-        cumulative_frame.grid(row=0, column=1, padx=5, pady=5, sticky="ns") # Gridded to be on the right
+        cumulative_frame = ttk.LabelFrame(positional_super_frame, text="<CUMULATIVE_POSITION>", padding="10")
+        cumulative_frame.grid(row=0, column=1, padx=5, pady=5, sticky="ns") #
         
         row_idx_cum = 0
         ttk.Label(cumulative_frame, text="Elbow Pitch:").grid(row=row_idx_cum, column=0, sticky="w", pady=2) #
-        ttk.Label(cumulative_frame, textvariable=self.cumulative_ep_degrees_var, width=8, anchor="e").grid(row=row_idx_cum, column=1, sticky="e", pady=2) #
+        ttk.Label(cumulative_frame, textvariable=self.cumulative_ep_degrees_var, width=8, anchor="e", foreground=self.FG_COLOR).grid(row=row_idx_cum, column=1, sticky="e", pady=2) #
         ttk.Label(cumulative_frame, text="°").grid(row=row_idx_cum, column=2, sticky="w", pady=2) #
         row_idx_cum += 1
         ttk.Label(cumulative_frame, text="Elbow Yaw:").grid(row=row_idx_cum, column=0, sticky="w", pady=2) #
-        ttk.Label(cumulative_frame, textvariable=self.cumulative_ey_degrees_var, width=8, anchor="e").grid(row=row_idx_cum, column=1, sticky="e", pady=2) #
+        ttk.Label(cumulative_frame, textvariable=self.cumulative_ey_degrees_var, width=8, anchor="e", foreground=self.FG_COLOR).grid(row=row_idx_cum, column=1, sticky="e", pady=2) #
         ttk.Label(cumulative_frame, text="°").grid(row=row_idx_cum, column=2, sticky="w", pady=2) #
         row_idx_cum += 1
         ttk.Label(cumulative_frame, text="Wrist Pitch:").grid(row=row_idx_cum, column=0, sticky="w", pady=2) #
-        ttk.Label(cumulative_frame, textvariable=self.cumulative_wp_degrees_var, width=8, anchor="e").grid(row=row_idx_cum, column=1, sticky="e", pady=2) #
+        ttk.Label(cumulative_frame, textvariable=self.cumulative_wp_degrees_var, width=8, anchor="e", foreground=self.FG_COLOR).grid(row=row_idx_cum, column=1, sticky="e", pady=2) #
         ttk.Label(cumulative_frame, text="°").grid(row=row_idx_cum, column=2, sticky="w", pady=2) #
         row_idx_cum += 1
         ttk.Label(cumulative_frame, text="Left Jaw:").grid(row=row_idx_cum, column=0, sticky="w", pady=2) #
-        ttk.Label(cumulative_frame, textvariable=self.cumulative_lj_degrees_var, width=8, anchor="e").grid(row=row_idx_cum, column=1, sticky="e", pady=2) #
+        ttk.Label(cumulative_frame, textvariable=self.cumulative_lj_degrees_var, width=8, anchor="e", foreground=self.FG_COLOR).grid(row=row_idx_cum, column=1, sticky="e", pady=2) #
         ttk.Label(cumulative_frame, text="°").grid(row=row_idx_cum, column=2, sticky="w", pady=2) #
         row_idx_cum += 1
         ttk.Label(cumulative_frame, text="Right Jaw:").grid(row=row_idx_cum, column=0, sticky="w", pady=2) #
-        ttk.Label(cumulative_frame, textvariable=self.cumulative_rj_degrees_var, width=8, anchor="e").grid(row=row_idx_cum, column=1, sticky="e", pady=2) #
+        ttk.Label(cumulative_frame, textvariable=self.cumulative_rj_degrees_var, width=8, anchor="e", foreground=self.FG_COLOR).grid(row=row_idx_cum, column=1, sticky="e", pady=2) #
         ttk.Label(cumulative_frame, text="°").grid(row=row_idx_cum, column=2, sticky="w", pady=2) #
         row_idx_cum += 1
-        ttk.Button(cumulative_frame, text="Reset Cumulative Display", command=self._reset_cumulative_degrees_display_action, width=25).grid(row=row_idx_cum, column=0, columnspan=3, pady=10) #
+        ttk.Button(cumulative_frame, text="[RESET_POSITION]", command=self._reset_cumulative_degrees_display_action, width=25).grid(row=row_idx_cum, column=0, columnspan=3, pady=10) #
         
         positional_super_frame.columnconfigure(0, weight=1) #
         positional_super_frame.columnconfigure(1, weight=1) #
 
-        self._update_jaw_mode_ui() # Call to set initial UI state for Jaws/Wrist Yaw
+        self._update_jaw_mode_ui() #
 
     def _create_output_area(self): #
-        output_frame = ttk.LabelFrame(self.main_content_frame, text="Output Log", padding="5") #
-        output_frame.grid(row=5, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5) #
-        self.main_content_frame.grid_rowconfigure(5, weight=1) #
-        self.main_content_frame.grid_columnconfigure(0, weight=1) # This makes the column containing the output_frame expand
+        output_frame = ttk.LabelFrame(self.main_content_frame, text="<OUTPUT_LOG>", padding="5") #
+        output_frame.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5) #
+        self.main_content_frame.grid_rowconfigure(4, weight=1) #
+        self.main_content_frame.grid_columnconfigure(0, weight=1) #
         
-        self.output_text = tk.Text(output_frame, height=10, width=80) #
+        # Using a standard tk.Text widget for full color control
+        self.output_text = tk.Text(output_frame, height=10, width=80,
+                                   background=self.BG_COLOR,
+                                   foreground=self.FG_COLOR,
+                                   insertbackground=self.BORDER_COLOR, # Cursor color
+                                   selectbackground=self.BORDER_COLOR,
+                                   selectforeground=self.TEXT_COLOR,
+                                   borderwidth=0,
+                                   highlightthickness=0,
+                                   font=self.FONT_HACKER)
         self.output_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S)) #
         
-        output_frame.grid_rowconfigure(0, weight=1) # Make the Text widget expand within output_frame
-        output_frame.grid_columnconfigure(0, weight=1) # Make the Text widget expand within output_frame
+        # --- NEW: Configure color tags for the Text widget ---
+        self.output_text.tag_config("info", foreground=self.INFO_COLOR)
+        self.output_text.tag_config("sent", foreground=self.SENT_COLOR)
+        self.output_text.tag_config("received", foreground=self.RECEIVED_COLOR)
+        self.output_text.tag_config("error", foreground=self.ERROR_COLOR, font=self.FONT_HACKER_BOLD)
+        self.output_text.tag_config("warning", foreground=self.WARNING_COLOR)
+        self.output_text.tag_config("timestamp", foreground=self.TIMESTAMP_COLOR)
         
-        scrollbar = ttk.Scrollbar(output_frame, orient=tk.VERTICAL, command=self.output_text.yview) #
+        output_frame.grid_rowconfigure(0, weight=1) #
+        output_frame.grid_columnconfigure(0, weight=1) #
+        
+        scrollbar = ttk.Scrollbar(output_frame, orient=tk.VERTICAL, command=self.output_text.yview, style='Vertical.TScrollbar')
         scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S)) #
         self.output_text['yscrollcommand'] = scrollbar.set #
 
-    def log_message(self, message): #
-        if hasattr(self, 'output_text') and self.output_text and self.output_text.winfo_exists(): #
-            self.output_text.insert(tk.END, str(message) + "\n") #
-            self.output_text.see(tk.END) #
-        else:
-            print(f"LOG (output_text not ready): {message}") #
+    def log_message(self, message, level="info"):
+        """
+        Logs a message to the output text box with timestamp, level icon, and color.
+        Levels: info, sent, received, error, warning
+        """
+        if not (hasattr(self, 'output_text') and self.output_text and self.output_text.winfo_exists()):
+            print(f"LOG ({level}): {message}")
+            return
+
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        
+        level_icons = {
+            "info": "##",
+            "sent": ">>",
+            "received": "<<",
+            "error": "!!",
+            "warning": "!!",
+        }
+        icon = level_icons.get(level, "##")
+
+        # Insert content with specific tags for coloring
+        self.output_text.insert(tk.END, f"[{timestamp}] ", "timestamp")
+        self.output_text.insert(tk.END, f"{icon} {message}\n", level)
+        self.output_text.see(tk.END) # Auto-scroll to the end
 
     def _update_connection_status_display(self, message, color, connected): #
-        self.status_label.config(text=f"Status: {message}", foreground=color) #
-        self.connect_button.config(text="Disconnect" if connected else "Connect") #
+        self.status_label.config(text=f"STATUS: {message}") #
+        self.connect_button.config(text="[DISCONNECT]" if connected else "[CONNECT]") #
         self.log_message(message) #
-
+        
     def _handle_serial_data(self, response_data, data_type="received"): #
-        self.log_message(f"Arduino: {response_data}") #
+        self.log_message(f"Arduino: {response_data}", level="received")
         if response_data.startswith("VERBOSE_STATE:"): #
             state = response_data.split(":")[1].strip() #
             self.is_verbose_arduino_side = (state == "1") #
-            self.verbose_button.config(text=f"Toggle Arduino Verbose ({'ON' if self.is_verbose_arduino_side else 'OFF'})") # Updated text
+            self.verbose_button.config(text=f"VERBOSITY: {'ON' if self.is_verbose_arduino_side else 'OFF'}")
             self.log_message(f"Arduino Verbose mode {'ON' if self.is_verbose_arduino_side else 'OFF'}") #
         
     def _handle_serial_error(self, error_message): #
         messagebox.showerror("Serial Error", error_message, parent=self.root) #
-        self.log_message(f"ERROR: {error_message}") #
+        self.log_message(f"ERROR: {error_message}", level="error") #
 
     def _toggle_connection_action(self): #
         if not self.serial_handler.is_connected: #
@@ -511,48 +547,23 @@ class ElbowSimulatorGUI:
             self.serial_handler.connect(port) #
         else:
             self.serial_handler.disconnect() #
-
+    
     def _update_control_mode_ui(self, event=None):
-        """Updates UI elements based on the control mode (Degrees/Steps)."""
         is_degrees = self.control_mode_is_degrees_var.get()
-
+        self.control_mode_button.config(text="MODE: DEGREES" if is_degrees else "MODE: STEPS")
         if is_degrees:
-            self.control_mode_button.config(text="Mode: Degrees")
-            # Disable individual motor control in degrees mode
             self.individual_motor_toggle.config(state=tk.DISABLED)
-            self.individual_motor_mode_var.set(False) # Uncheck it
-        else: # Steps mode
-            self.control_mode_button.config(text="Mode: Steps")
-            # Enable individual motor control
+            self.individual_motor_mode_var.set(False)
+        else:
             self.individual_motor_toggle.config(state=tk.NORMAL)
-
-        # Update button states based on the new mode
         self._on_individual_motor_toggle()
 
-    def _on_individual_motor_toggle(self, event=None):
-        """Updates button states when individual motor mode is toggled or control mode changes."""
-        is_individual = self.individual_motor_mode_var.get()
-        is_degrees = self.control_mode_is_degrees_var.get()
-
-        # The toggle should only have an effect if we are in steps mode.
-        if is_individual and not is_degrees:
-            # Gray out Q1 and Q2 negative buttons
-            self.q1_neg_button.config(state=tk.DISABLED)
-            self.q2_neg_button.config(state=tk.DISABLED)
-        else:
-            # Re-enable them for coordinated or degree mode
-            self.q1_neg_button.config(state=tk.NORMAL)
-            self.q2_neg_button.config(state=tk.NORMAL)
-
     def _update_jaw_mode_ui(self, event=None):
-        """Updates the UI elements for Jaw/Wrist Yaw mode for dedicated degree inputs."""
         is_wrist_yaw_mode = self.wrist_yaw_mode_var.get()
+        self.wrist_yaw_mode_button.config(text="MODE: WRIST_YAW" if is_wrist_yaw_mode else "MODE: JAWS")
 
-        if hasattr(self, 'wrist_yaw_mode_button') and self.wrist_yaw_mode_button.winfo_exists():
-            self.wrist_yaw_mode_button.config(text="Wrist Yaw Mode" if is_wrist_yaw_mode else "Jaws Mode")
-
-        wrist_yaw_target_row = self.lj_target_row if hasattr(self, 'lj_target_row') else 3 
-
+        # ... (rest of the logic is unchanged)
+        wrist_yaw_target_row = self.lj_target_row if hasattr(self, 'lj_target_row') else 3
         if hasattr(self, 'lj_label') and self.lj_label.winfo_exists():
             if not is_wrist_yaw_mode:
                 self.lj_label.grid(row=self.lj_target_row, column=0, sticky="w", pady=2)
@@ -560,7 +571,6 @@ class ElbowSimulatorGUI:
             else:
                 self.lj_label.grid_remove()
                 self.lj_degrees_entry.grid_remove()
-
         if hasattr(self, 'rj_label') and self.rj_label.winfo_exists():
             if not is_wrist_yaw_mode:
                 self.rj_label.grid(row=self.rj_target_row, column=0, sticky="w", pady=2)
@@ -568,7 +578,6 @@ class ElbowSimulatorGUI:
             else:
                 self.rj_label.grid_remove()
                 self.rj_degrees_entry.grid_remove()
-
         if hasattr(self, 'wrist_yaw_label') and self.wrist_yaw_label.winfo_exists():
             if is_wrist_yaw_mode:
                 self.wrist_yaw_label.grid(row=wrist_yaw_target_row, column=0, sticky="w", pady=2)
@@ -576,25 +585,92 @@ class ElbowSimulatorGUI:
             else:
                 self.wrist_yaw_label.grid_remove()
                 self.wrist_yaw_entry.grid_remove()
-
         if hasattr(self, 'lj_degrees_input_var'): self.lj_degrees_input_var.set("0.0")
         if hasattr(self, 'rj_degrees_input_var'): self.rj_degrees_input_var.set("0.0")
         if hasattr(self, 'wrist_yaw_degrees_var'): self.wrist_yaw_degrees_var.set("0.0")
 
+    # --- Methods with unchanged logic from previous state ---
+    def _on_individual_motor_toggle(self, event=None):
+        is_individual = self.individual_motor_mode_var.get()
+        is_degrees = self.control_mode_is_degrees_var.get()
+        if is_individual and not is_degrees:
+            self.q1_neg_button.config(state=tk.DISABLED)
+            self.q2_neg_button.config(state=tk.DISABLED)
+        else:
+            self.q1_neg_button.config(state=tk.NORMAL)
+            self.q2_neg_button.config(state=tk.NORMAL)
+            
+    def _toggle_ros_mode(self):
+        is_ros_mode = self.ros_mode_var.get()
+        if is_ros_mode:
+            if not IS_ROS_AVAILABLE:
+                messagebox.showerror("ROS Not Found", "The 'rospy' library is not installed. Please install ROS and its Python bindings to use this feature.", parent=self.root)
+                self.ros_mode_var.set(False) # Revert the checkbox
+                return
+            self.ros_topic_entry.config(state=tk.NORMAL)
+            self.ros_subscribe_button.config(state=tk.NORMAL)
+            self.ros_status_var.set("Status: Ready")
+            self.log_message("ROS mode enabled.")
+        else:
+            self._stop_ros_subscriber() # Stop any active subscription
+            self.ros_topic_entry.config(state=tk.DISABLED)
+            self.ros_subscribe_button.config(state=tk.DISABLED)
+            self.ros_status_var.set("Status: Inactive")
+            self.log_message("ROS mode disabled.")
+
+    def _start_ros_subscriber(self):
+        if self.ros_thread and self.ros_thread.is_alive():
+            self._stop_ros_subscriber()
+        topic_name = self.ros_topic_var.get()
+        if not topic_name:
+            messagebox.showwarning("Input Error", "Please provide a ROS topic name.", parent=self.root)
+            return
+        self.ros_status_var.set(f"Status: Subscribing...")
+        self.ros_thread = ROSSubscriberThread(topic_name, self.ros_queue, self.log_message)
+        self.ros_thread.start()
+
+    def _stop_ros_subscriber(self):
+        if self.ros_thread and self.ros_thread.is_alive():
+            self.ros_thread.stop()
+            self.ros_thread.join(timeout=1)
+            self.ros_thread = None
+            self.ros_status_var.set("Status: Standby")
+            self.log_message("ROS subscription stopped.")
+
+    def _check_ros_queue(self):
+        try:
+            target_positions = self.ros_queue.get_nowait()
+            self.log_message(f"ROS Command Received: Target {target_positions}")
+            current_abs_positions = {
+                "EP": self.cumulative_ep_degrees_var.get(),
+                "EY": self.cumulative_ey_degrees_var.get(),
+                "WP": self.cumulative_wp_degrees_var.get(),
+                "LJ": self.cumulative_lj_degrees_var.get(),
+                "RJ": self.cumulative_rj_degrees_var.get(),
+            }
+            joint_degree_deltas = {
+                "EP": target_positions["Q1"] - current_abs_positions["EP"],
+                "EY": target_positions["Q2"] - current_abs_positions["EY"],
+                "WP": target_positions["Q3"] - current_abs_positions["WP"],
+                "LJ": target_positions["Q4L"] - current_abs_positions["LJ"],
+                "RJ": target_positions["Q4R"] - current_abs_positions["RJ"],
+            }
+            self.log_message(f"Calculated Deltas: {joint_degree_deltas}")
+            self._execute_degree_based_move(joint_degree_deltas)
+        except queue.Empty:
+            pass
+        finally:
+            self.root.after(100, self._check_ros_queue)
+
     def _joint_button_action(self, joint, sign):
-        """Handles all joint control button presses."""
         try:
             value = float(self.step_degree_input_var.get())
         except ValueError:
             messagebox.showerror("Input Error", "Invalid value. Please enter a number.", parent=self.root)
             return
-
         is_degrees = self.control_mode_is_degrees_var.get()
         is_individual = self.individual_motor_mode_var.get()
-
         if is_degrees:
-            # --- Degree-Based Mode (always coordinated) ---
-            # Signs multiply to get the final degree value.
             applied_value = value * sign
             joint_map = {"Q1": "EP", "Q2": "EY", "Q3": "WP", "Q4L": "LJ", "Q4R": "RJ"}
             joint_key = joint_map.get(joint)
@@ -603,172 +679,128 @@ class ElbowSimulatorGUI:
                 self.log_message(f"Joint Move: {joint} by {applied_value}°")
                 self._execute_degree_based_move(joint_degree_deltas)
         else:
-            # --- Step-Based Mode ---
             motor_steps = [0] * len(MotorIndex)
-            
             if is_individual:
-                # --- Individual Motor Control ---
-                # Buttons select the motor, value box provides the signed step count.
                 motor_map = {
-                    ("Q1", 1): MotorIndex.EP,
-                    ("Q2", 1): MotorIndex.EY,
-                    ("Q3", 1): MotorIndex.WPD,
-                    ("Q3", -1): MotorIndex.WPU,
-                    ("Q4L", 1): MotorIndex.LJR,
-                    ("Q4L", -1): MotorIndex.LJL,
-                    ("Q4R", 1): MotorIndex.RJL,
-                    ("Q4R", -1): MotorIndex.RJR,
+                    ("Q1", 1): MotorIndex.EP, ("Q2", 1): MotorIndex.EY,
+                    ("Q3", 1): MotorIndex.WPD, ("Q3", -1): MotorIndex.WPU,
+                    ("Q4L", 1): MotorIndex.LJR, ("Q4L", -1): MotorIndex.LJL,
+                    ("Q4R", 1): MotorIndex.RJL, ("Q4R", -1): MotorIndex.RJR,
                 }
                 motor_to_move = motor_map.get((joint, sign))
                 if motor_to_move is not None:
-                    steps_value = int(value) # Use the value from the box directly
+                    steps_value = int(value)
                     motor_steps[motor_to_move] = steps_value
-                    self.log_message(f"Individual Motor Step: {motor_to_move.name} by {steps_value} steps")
+                    self.log_message(f"Individual Motor Step: {motor_to_move.name} by {steps_value} steps", level="sent")
                 else:
-                     self.log_message(f"Invalid individual motor command: {joint} sign {sign}")
+                     self.log_message(f"Invalid individual motor command: {joint} sign {sign}", level="warning")
                      return
             else:
-                # --- Coordinated Step Mode ---
-                # Signs multiply to get the final step value.
                 applied_value = value * sign
                 steps = int(applied_value)
                 if joint == "Q1": motor_steps[MotorIndex.EP] = steps
                 elif joint == "Q2": motor_steps[MotorIndex.EY] = steps
-                elif joint == "Q3": # Wrist Pitch
-                    motor_steps[MotorIndex.WPD] = steps
-                    motor_steps[MotorIndex.WPU] = -steps
-                elif joint == "Q4L": # Left Jaw Yaw
-                    motor_steps[MotorIndex.LJR] = steps
-                    motor_steps[MotorIndex.LJL] = -steps
-                elif joint == "Q4R": # Right Jaw Yaw
-                    motor_steps[MotorIndex.RJL] = steps
-                    motor_steps[MotorIndex.RJR] = -steps
-                
+                elif joint == "Q3":
+                    motor_steps[MotorIndex.WPD] = steps; motor_steps[MotorIndex.WPU] = -steps
+                elif joint == "Q4L":
+                    motor_steps[MotorIndex.LJR] = steps; motor_steps[MotorIndex.LJL] = -steps
+                elif joint == "Q4R":
+                    motor_steps[MotorIndex.RJL] = steps; motor_steps[MotorIndex.RJR] = -steps
                 self.log_message(f"Coordinated Step Move: {joint} by {steps} steps")
-
             steps_str = ",".join(map(str, motor_steps))
             cmd = f"MOVE_ALL_MOTORS:{steps_str}"
             self.serial_handler.send_command(cmd)
-            self.log_message(f"Sent Step-Based Move: {cmd}")
+            self.log_message(f"Command: {cmd}", level="sent")
 
-    def _toggle_arduino_verbose_action(self): # Renamed for clarity
-        self.serial_handler.send_command("TOGGLE_VERBOSE") #
-        self.log_message("Sent: TOGGLE_VERBOSE to Arduino") #
+    def _toggle_arduino_verbose_action(self):
+        self.serial_handler.send_command("TOGGLE_VERBOSE")
+        self.log_message("Command: TOGGLE_VERBOSE", level="sent")
 
-    def _dedicated_move_by_degrees_action(self): #
-        """Handles the 'Move Joints by Degrees' button press from dedicated input fields."""
+    def _dedicated_move_by_degrees_action(self):
         try:
-            if self.wrist_yaw_mode_var.get(): # Check if in Wrist Yaw mode
+            if self.wrist_yaw_mode_var.get():
                 jaw_val_for_yaw = float(self.wrist_yaw_degrees_var.get())
                 joint_degree_deltas = {
-                    "EP": float(self.ep_degrees_input_var.get()),
-                    "EY": float(self.ey_degrees_input_var.get()),
-                    "WP": float(self.wp_degrees_input_var.get()),
-                    "LJ": jaw_val_for_yaw, 
-                    "RJ": jaw_val_for_yaw, 
+                    "EP": float(self.ep_degrees_input_var.get()), "EY": float(self.ey_degrees_input_var.get()),
+                    "WP": float(self.wp_degrees_input_var.get()), "LJ": jaw_val_for_yaw, "RJ": jaw_val_for_yaw,
                 }
                 self.wrist_yaw_degrees_var.set("0.0")
-            else: # Jaws Mode
+            else:
                 joint_degree_deltas = {
-                    "EP": float(self.ep_degrees_input_var.get()),
-                    "EY": float(self.ey_degrees_input_var.get()),
-                    "WP": float(self.wp_degrees_input_var.get()),
-                    "LJ": float(self.lj_degrees_input_var.get()), #
-                    "RJ": float(self.rj_degrees_input_var.get()), #
+                    "EP": float(self.ep_degrees_input_var.get()), "EY": float(self.ey_degrees_input_var.get()),
+                    "WP": float(self.wp_degrees_input_var.get()), "LJ": float(self.lj_degrees_input_var.get()),
+                    "RJ": float(self.rj_degrees_input_var.get()),
                 }
-                self.lj_degrees_input_var.set("0.0") #
-                self.rj_degrees_input_var.set("0.0") #
-
-            self.ep_degrees_input_var.set("0.0") #
-            self.ey_degrees_input_var.set("0.0") #
-            self.wp_degrees_input_var.set("0.0") #
-
+                self.lj_degrees_input_var.set("0.0")
+                self.rj_degrees_input_var.set("0.0")
+            self.ep_degrees_input_var.set("0.0")
+            self.ey_degrees_input_var.set("0.0")
+            self.wp_degrees_input_var.set("0.0")
         except ValueError:
-            messagebox.showerror("Input Error", "Invalid degree value. Please enter numbers only.", parent=self.root) #
+            messagebox.showerror("Input Error", "Invalid degree value. Please enter numbers only.", parent=self.root)
             return
-        
-        self.log_message(f"Dedicated Degree Input: Deltas {joint_degree_deltas}") #
-        self._execute_degree_based_move(joint_degree_deltas) #
+        self.log_message(f"Dedicated Degree Input: Deltas {joint_degree_deltas}")
+        self._execute_degree_based_move(joint_degree_deltas)
 
-    def _execute_degree_based_move(self, joint_degree_deltas_input): #
-        """
-        Core logic to calculate and send motor commands based on degree deltas.
-        """
-        all_joint_keys = ["EP", "EY", "WP", "LJ", "RJ"] #
-        full_joint_degree_deltas = {key: 0.0 for key in all_joint_keys} #
-        full_joint_degree_deltas.update(joint_degree_deltas_input) #
-
-        current_abs_positions = { #
-            "EP": self.cumulative_ep_degrees_var.get(), #
-            "EY": self.cumulative_ey_degrees_var.get(), #
-            "WP": self.cumulative_wp_degrees_var.get(), #
-            "LJ": self.cumulative_lj_degrees_var.get(), #
-            "RJ": self.cumulative_rj_degrees_var.get(), #
+    def _execute_degree_based_move(self, joint_degree_deltas_input):
+        all_joint_keys = ["EP", "EY", "WP", "LJ", "RJ"]
+        full_joint_degree_deltas = {key: 0.0 for key in all_joint_keys}
+        full_joint_degree_deltas.update(joint_degree_deltas_input)
+        current_abs_positions = {
+            "EP": self.cumulative_ep_degrees_var.get(), "EY": self.cumulative_ey_degrees_var.get(),
+            "WP": self.cumulative_wp_degrees_var.get(), "LJ": self.cumulative_lj_degrees_var.get(),
+            "RJ": self.cumulative_rj_degrees_var.get(),
         }
-
-        joint_processors = { #
-            "EP": (current_abs_positions["EP"], full_joint_degree_deltas["EP"], q1_pl.get_steps, self.latest_dir["EP"]), #
-            "EY": (current_abs_positions["EY"], full_joint_degree_deltas["EY"], q2_pl.get_steps, self.latest_dir["EY"]), #
-            "WP": (current_abs_positions["WP"], full_joint_degree_deltas["WP"], q3_pl.get_steps, self.latest_dir["WP"]), #
-            "LJ": (current_abs_positions["LJ"], full_joint_degree_deltas["LJ"], q4_pl.get_steps_L, self.latest_dir["LJ"]), #
-            "RJ": (current_abs_positions["RJ"], full_joint_degree_deltas["RJ"], q4_pl.get_steps_R, self.latest_dir["RJ"]), #
+        joint_processors = {
+            "EP": (current_abs_positions["EP"], full_joint_degree_deltas["EP"], q1_pl.get_steps, self.latest_dir["EP"]),
+            "EY": (current_abs_positions["EY"], full_joint_degree_deltas["EY"], q2_pl.get_steps, self.latest_dir["EY"]),
+            "WP": (current_abs_positions["WP"], full_joint_degree_deltas["WP"], q3_pl.get_steps, self.latest_dir["WP"]),
+            "LJ": (current_abs_positions["LJ"], full_joint_degree_deltas["LJ"], q4_pl.get_steps_L, self.latest_dir["LJ"]),
+            "RJ": (current_abs_positions["RJ"], full_joint_degree_deltas["RJ"], q4_pl.get_steps_R, self.latest_dir["RJ"]),
         }
-
-        total_motor_steps = [0] * len(MotorIndex) #
-
-        for joint_name, (curr_theta, delta_theta, get_steps_function, latest_dir) in joint_processors.items(): #
-            if delta_theta != 0: # Process only if there's a delta for this joint #
+        total_motor_steps = [0] * len(MotorIndex)
+        for joint_name, (curr_theta, delta_theta, get_steps_function, latest_dir) in joint_processors.items():
+            if delta_theta != 0:
                 try:
-                    self.log_message(f"Calculating for {joint_name}: current_abs={curr_theta:.2f}°, delta={delta_theta:.2f}°") #
-                    joint_specific_motor_steps, self.latest_dir[joint_name] = get_steps_function(curr_theta, delta_theta, latest_dir) #
-                    for motor_idx_enum in MotorIndex: # Iterate using enum members #
-                        total_motor_steps[motor_idx_enum.value] += joint_specific_motor_steps[motor_idx_enum.value] #
-                    self.log_message(f"  Steps from {joint_name}: {joint_specific_motor_steps}") #
+                    self.log_message(f"Calculating for {joint_name}: current={curr_theta:.2f}°, delta={delta_theta:.2f}°")
+                    joint_specific_motor_steps, self.latest_dir[joint_name] = get_steps_function(curr_theta, delta_theta, latest_dir)
+                    for motor_idx_enum in MotorIndex:
+                        total_motor_steps[motor_idx_enum.value] += joint_specific_motor_steps[motor_idx_enum.value]
+                    self.log_message(f"  Steps from {joint_name}: {joint_specific_motor_steps}")
                 except Exception as e:
-                    self.log_message(f"  Error calling {get_steps_function.__name__} for {joint_name}: {e}") #
-                    import traceback #
-                    self.log_message(traceback.format_exc()) #
-        
-        final_integer_steps = [int(round(s)) for s in total_motor_steps] #
-        self.log_message(f"Final Combined Steps: {final_integer_steps}") #
-                
-        steps_str = ",".join(map(str, final_integer_steps)) #
-        cmd = f"MOVE_ALL_MOTORS:{steps_str}" #
-
-        if self.serial_handler.send_command(cmd): #
-            self.log_message(f"Sent Degree-Based Move: {cmd}") #
-            if full_joint_degree_deltas["EP"] != 0: #
-                self.cumulative_ep_degrees_var.set(round(current_abs_positions["EP"] + full_joint_degree_deltas["EP"], 2)) #
-            if full_joint_degree_deltas["EY"] != 0: #
-                self.cumulative_ey_degrees_var.set(round(current_abs_positions["EY"] + full_joint_degree_deltas["EY"], 2)) #
-            if full_joint_degree_deltas["WP"] != 0: #
-                self.cumulative_wp_degrees_var.set(round(current_abs_positions["WP"] + full_joint_degree_deltas["WP"], 2)) #
-            if full_joint_degree_deltas["LJ"] != 0: #
-                self.cumulative_lj_degrees_var.set(round(current_abs_positions["LJ"] + full_joint_degree_deltas["LJ"], 2)) #
-            if full_joint_degree_deltas["RJ"] != 0: #
-                self.cumulative_rj_degrees_var.set(round(current_abs_positions["RJ"] + full_joint_degree_deltas["RJ"], 2)) #
+                    self.log_message(f"  Error in {get_steps_function.__name__} for {joint_name}: {e}", level="error")
+                    import traceback; self.log_message(traceback.format_exc(), level="error")
+        final_integer_steps = [int(round(s)) for s in total_motor_steps]
+        self.log_message(f"Final Combined Steps: {final_integer_steps}")
+        steps_str = ",".join(map(str, final_integer_steps))
+        cmd = f"MOVE_ALL_MOTORS:{steps_str}"
+        if self.serial_handler.send_command(cmd):
+            self.log_message(f"Command: {cmd}", level="sent")
+            if full_joint_degree_deltas["EP"] != 0: self.cumulative_ep_degrees_var.set(round(current_abs_positions["EP"] + full_joint_degree_deltas["EP"], 2))
+            if full_joint_degree_deltas["EY"] != 0: self.cumulative_ey_degrees_var.set(round(current_abs_positions["EY"] + full_joint_degree_deltas["EY"], 2))
+            if full_joint_degree_deltas["WP"] != 0: self.cumulative_wp_degrees_var.set(round(current_abs_positions["WP"] + full_joint_degree_deltas["WP"], 2))
+            if full_joint_degree_deltas["LJ"] != 0: self.cumulative_lj_degrees_var.set(round(current_abs_positions["LJ"] + full_joint_degree_deltas["LJ"], 2))
+            if full_joint_degree_deltas["RJ"] != 0: self.cumulative_rj_degrees_var.set(round(current_abs_positions["RJ"] + full_joint_degree_deltas["RJ"], 2))
         else:
-            self.log_message("Failed to send degree-based command.") #
+            self.log_message("Failed to send command.", level="error")
 
-    def _reset_cumulative_degrees_display_action(self, from_test_mode=False, is_initial_setup=False): # Added is_initial_setup flag
-        self.cumulative_ep_degrees_var.set(90.0) #
-        self.cumulative_ey_degrees_var.set(90.0) #
-        self.cumulative_wp_degrees_var.set(90.0) #
-        self.cumulative_lj_degrees_var.set(90.0) #
-        self.cumulative_rj_degrees_var.set(90.0) #
-        
-        if not from_test_mode and not is_initial_setup: #
-            messagebox.showinfo("Reset", "Cumulative degree display has been reset to reference positions.", parent=self.root) #
-        if not is_initial_setup: # Don't log during init before log widget is ready
-            self.log_message("Cumulative degree display reset to reference positions.") #
+    def _reset_cumulative_degrees_display_action(self, from_test_mode=False, is_initial_setup=False):
+        self.cumulative_ep_degrees_var.set(90.0)
+        self.cumulative_ey_degrees_var.set(90.0)
+        self.cumulative_wp_degrees_var.set(90.0)
+        self.cumulative_lj_degrees_var.set(90.0)
+        self.cumulative_rj_degrees_var.set(90.0)
+        if not from_test_mode and not is_initial_setup:
+            messagebox.showinfo("Reset", "Cumulative degree display has been reset.", parent=self.root)
+        if not is_initial_setup:
+            self.log_message("Cumulative degree display reset to reference positions.")
 
-    def _reset_cumulative_degrees_display_from_test_mode(self): #
-        self._reset_cumulative_degrees_display_action(from_test_mode=True) #
-        self.log_message("Cumulative degrees display reset due to 'Set Home' in Test Motors mode.") #
+    def _reset_cumulative_degrees_display_from_test_mode(self):
+        self._reset_cumulative_degrees_display_action(from_test_mode=True)
+        self.log_message("Cumulative degrees display reset from 'Set Home'.")
 
-    def cleanup_on_exit(self): #
+    def cleanup_on_exit(self):
         self.log_message("Application exiting. Cleaning up...")
-        self._stop_ros_subscriber() # Ensure ROS thread is stopped cleanly
-        self.serial_handler.cleanup() #
-        self.log_message("Serial handler cleaned up.") #
-
+        self._stop_ros_subscriber()
+        self.serial_handler.cleanup()
+        self.log_message("Cleanup complete. Goodbye.")
