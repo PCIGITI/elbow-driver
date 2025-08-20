@@ -6,6 +6,80 @@ import config # For constants, MotorIndex
 from config import MotorIndex #
 import q1_pl, q2_pl, q3_pl, q4_pl # Joint processors for step calculations
 
+# ROS-related imports with a fallback if ROS is not installed
+import queue
+import threading
+try:
+    import rospy
+    from std_msgs.msg import Float64MultiArray
+    IS_ROS_AVAILABLE = True
+except ImportError:
+    IS_ROS_AVAILABLE = False
+    
+# --- Helper Class for ROS Communication ---
+
+class ROSSubscriberThread(threading.Thread):
+    """
+    A dedicated thread to handle ROS node initialization and subscription
+    to avoid blocking the main Tkinter GUI thread.
+    """
+    def __init__(self, topic_name, data_queue, log_callback):
+        super().__init__(daemon=True)
+        self._topic_name = topic_name
+        self._data_queue = data_queue
+        self._log_callback = log_callback
+        self._subscriber = None
+        self._is_running = True
+
+    def _ros_callback(self, msg):
+        """Callback function for the ROS subscriber."""
+        # Expected message format: [NA, NA, Q1, Q2, Q3, Q4L] in radians
+        if len(msg.data) >= 6:
+            try:
+                # Convert radians to degrees and create a dictionary of target positions
+                target_positions_deg = {
+                    "Q1": math.degrees(msg.data[2]), # EP
+                    "Q2": math.degrees(msg.data[3]), # EY
+                    "Q3": math.degrees(msg.data[4]), # WP
+                    "Q4L": math.degrees(msg.data[5]), # LJ
+                    "Q4R": -math.degrees(msg.data[5]) # RJ moves equal and opposite
+                }
+                # Put the processed data into the thread-safe queue for the GUI
+                self._data_queue.put(target_positions_deg)
+            except Exception as e:
+                self._log_callback(f"ROS Callback Error: {e}")
+        else:
+            self._log_callback(f"ROS WARNING: Received message with insufficient data length: {len(msg.data)}")
+
+    def run(self):
+        """The main execution method of the thread."""
+        self._log_callback("ROS Thread: Initializing node 'elbow_gui_controller'.")
+        try:
+            # Initialize the ROS node. anonymous=True ensures the node has a unique name.
+            rospy.init_node('elbow_gui_controller', anonymous=True)
+            # Create a subscriber for the specified topic
+            self._subscriber = rospy.Subscriber(self._topic_name, Float64MultiArray, self._ros_callback)
+            self._log_callback(f"ROS Thread: Subscribed to topic '{self._topic_name}'.")
+            
+            # rospy.spin() is a blocking call that keeps the script alive to receive messages.
+            # We check our stop condition periodically.
+            while self._is_running and not rospy.is_shutdown():
+                rospy.sleep(0.1) # Sleep to reduce CPU usage
+
+        except rospy.ROSInterruptException:
+            self._log_callback("ROS Thread: Shutdown signal received.")
+        except Exception as e:
+            self._log_callback(f"ROS Thread: An error occurred: {e}")
+        finally:
+            self._log_callback("ROS Thread: Exiting.")
+
+    def stop(self):
+        """Signals the thread to stop."""
+        self._log_callback("ROS Thread: Stop signal received.")
+        self._is_running = False
+        if self._subscriber:
+            self._subscriber.unregister() # Cleanly unsubscribe
+
 
 class ElbowSimulatorGUI:
     def __init__(self, root, serial_handler): #
@@ -43,6 +117,13 @@ class ElbowSimulatorGUI:
         self.cumulative_wp_degrees_var = tk.DoubleVar(value=90.0) #
         self.cumulative_lj_degrees_var = tk.DoubleVar(value=90.0) #
         self.cumulative_rj_degrees_var = tk.DoubleVar(value=90.0) #
+        
+        # --- ROS Variables ---
+        self.ros_mode_var = tk.BooleanVar(value=False)
+        self.ros_topic_var = tk.StringVar(value="/joint_commands") # Default topic
+        self.ros_status_var = tk.StringVar(value="Status: Inactive")
+        self.ros_queue = queue.Queue()
+        self.ros_thread = None
 
         #holds the latest direction values for each motor pair, 0 for true neutral, 1 for ccw, -1 for cw
         self.latest_dir = {
@@ -57,6 +138,7 @@ class ElbowSimulatorGUI:
         self._create_widgets() #
         self._create_output_area() # Create the serial output log box
         self._update_control_mode_ui() # Initialize new control UI
+        self._check_ros_queue() # Start the loop to check for ROS messages
 
         self.log_message(f"{config.APP_TITLE} initialized.") #
 
@@ -118,8 +200,123 @@ class ElbowSimulatorGUI:
         
         sys_cmd_frame.columnconfigure(1, weight=1) # Adjusted column weight
 
-        # Row 3: Inline Positional Control Frame
+        # Row 3: ROS Control Frame
+        self._create_ros_control_widgets(self.main_content_frame)
+
+        # Row 4: Inline Positional Control Frame
         self._create_positional_control_frame_widgets(self.main_content_frame) #
+    
+    def _create_ros_control_widgets(self, parent_frame):
+        """Creates the widgets for the ROS control feature."""
+        ros_frame = ttk.LabelFrame(parent_frame, text="ROS Control", padding="10")
+        ros_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+
+        # Toggle button for ROS mode
+        self.ros_mode_toggle = ttk.Checkbutton(
+            ros_frame,
+            text="ROS Mode",
+            variable=self.ros_mode_var,
+            command=self._toggle_ros_mode,
+            style="Toolbutton"
+        )
+        self.ros_mode_toggle.grid(row=0, column=0, padx=5, pady=5)
+
+        ttk.Label(ros_frame, text="Topic:").grid(row=0, column=1, padx=(10, 0), pady=5)
+        self.ros_topic_entry = ttk.Entry(ros_frame, textvariable=self.ros_topic_var, width=30)
+        self.ros_topic_entry.grid(row=0, column=2, padx=5, pady=5)
+
+        self.ros_subscribe_button = ttk.Button(
+            ros_frame, text="Subscribe", command=self._start_ros_subscriber
+        )
+        self.ros_subscribe_button.grid(row=0, column=3, padx=5, pady=5)
+
+        self.ros_status_label = ttk.Label(ros_frame, textvariable=self.ros_status_var)
+        self.ros_status_label.grid(row=0, column=4, padx=10, pady=5, sticky=tk.W)
+        
+        ros_frame.columnconfigure(4, weight=1) # Allow status label to expand
+
+        # Initially disable ROS-specific widgets
+        self.ros_topic_entry.config(state=tk.DISABLED)
+        self.ros_subscribe_button.config(state=tk.DISABLED)
+
+    def _toggle_ros_mode(self):
+        """Handles enabling or disabling ROS mode."""
+        is_ros_mode = self.ros_mode_var.get()
+        
+        if is_ros_mode:
+            if not IS_ROS_AVAILABLE:
+                messagebox.showerror("ROS Not Found", "The 'rospy' library is not installed. Please install ROS and its Python bindings to use this feature.", parent=self.root)
+                self.ros_mode_var.set(False) # Revert the checkbox
+                return
+
+            self.ros_topic_entry.config(state=tk.NORMAL)
+            self.ros_subscribe_button.config(state=tk.NORMAL)
+            self.ros_status_var.set("Status: Ready to Subscribe")
+            self.log_message("ROS mode enabled.")
+            # Optionally, disable other manual controls to prevent conflicts
+        else:
+            self._stop_ros_subscriber() # Stop any active subscription
+            self.ros_topic_entry.config(state=tk.DISABLED)
+            self.ros_subscribe_button.config(state=tk.DISABLED)
+            self.ros_status_var.set("Status: Inactive")
+            self.log_message("ROS mode disabled.")
+            
+    def _start_ros_subscriber(self):
+        """Starts the ROS subscriber thread."""
+        if self.ros_thread and self.ros_thread.is_alive():
+            self._stop_ros_subscriber() # Stop previous thread first
+
+        topic_name = self.ros_topic_var.get()
+        if not topic_name:
+            messagebox.showwarning("Input Error", "Please provide a ROS topic name.", parent=self.root)
+            return
+        
+        self.ros_status_var.set(f"Status: Subscribing to {topic_name}...")
+        self.ros_thread = ROSSubscriberThread(topic_name, self.ros_queue, self.log_message)
+        self.ros_thread.start()
+
+    def _stop_ros_subscriber(self):
+        """Stops the ROS subscriber thread if it's running."""
+        if self.ros_thread and self.ros_thread.is_alive():
+            self.ros_thread.stop()
+            self.ros_thread.join(timeout=1) # Wait for the thread to finish
+            self.ros_thread = None
+            self.ros_status_var.set("Status: Subscription stopped.")
+            self.log_message("ROS subscription stopped.")
+
+    def _check_ros_queue(self):
+        """Periodically checks the queue for new messages from the ROS thread."""
+        try:
+            target_positions = self.ros_queue.get_nowait()
+            self.log_message(f"ROS Command Received: Target Positions {target_positions}")
+            
+            # Get current absolute positions from the GUI
+            current_abs_positions = {
+                "EP": self.cumulative_ep_degrees_var.get(),
+                "EY": self.cumulative_ey_degrees_var.get(),
+                "WP": self.cumulative_wp_degrees_var.get(),
+                "LJ": self.cumulative_lj_degrees_var.get(),
+                "RJ": self.cumulative_rj_degrees_var.get(),
+            }
+
+            # Calculate the delta needed to reach the target from the current position
+            joint_degree_deltas = {
+                "EP": target_positions["Q1"] - current_abs_positions["EP"],
+                "EY": target_positions["Q2"] - current_abs_positions["EY"],
+                "WP": target_positions["Q3"] - current_abs_positions["WP"],
+                "LJ": target_positions["Q4L"] - current_abs_positions["LJ"],
+                "RJ": target_positions["Q4R"] - current_abs_positions["RJ"],
+            }
+            
+            self.log_message(f"Calculated Deltas for Move: {joint_degree_deltas}")
+            self._execute_degree_based_move(joint_degree_deltas)
+
+        except queue.Empty:
+            # No new message, which is the normal case
+            pass
+        finally:
+            # Schedule this method to run again after 100ms
+            self.root.after(100, self._check_ros_queue)
 
     def _create_joint_control_widgets(self, parent_frame):
         """Creates the new joint control UI as requested."""
@@ -193,7 +390,7 @@ class ElbowSimulatorGUI:
 
     def _create_positional_control_frame_widgets(self, parent_frame): #
         positional_super_frame = ttk.LabelFrame(parent_frame, text="Positional Control (Dedicated Input Fields)", padding="10") #
-        positional_super_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10) #
+        positional_super_frame.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10) #
 
         # "Move by Degrees" frame
         input_frame = ttk.LabelFrame(positional_super_frame, text="Move by Degrees", padding="10") #
@@ -270,8 +467,8 @@ class ElbowSimulatorGUI:
 
     def _create_output_area(self): #
         output_frame = ttk.LabelFrame(self.main_content_frame, text="Output Log", padding="5") #
-        output_frame.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5) #
-        self.main_content_frame.grid_rowconfigure(4, weight=1) #
+        output_frame.grid(row=5, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5) #
+        self.main_content_frame.grid_rowconfigure(5, weight=1) #
         self.main_content_frame.grid_columnconfigure(0, weight=1) # This makes the column containing the output_frame expand
         
         self.output_text = tk.Text(output_frame, height=10, width=80) #
@@ -571,6 +768,7 @@ class ElbowSimulatorGUI:
 
     def cleanup_on_exit(self): #
         self.log_message("Application exiting. Cleaning up...")
-        
+        self._stop_ros_subscriber() # Ensure ROS thread is stopped cleanly
         self.serial_handler.cleanup() #
         self.log_message("Serial handler cleaned up.") #
+
