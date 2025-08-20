@@ -49,13 +49,19 @@ class ROSSubscriberThread(threading.Thread):
                 self._log_callback(f"ROS WARNING: Missing joints in message: {missing}", level="warning")
                 return
 
+            # --- NEW: Convert radians to degrees with a 90-degree offset ---
+            # 0 rad -> 90 deg, -pi/2 rad -> 0 deg, +pi/2 rad -> 180 deg
+            def convert_rad_to_deg(rad_val):
+                return math.degrees(rad_val) + 90.0
+
             # Convert radians to degrees and create a dictionary of target positions
             target_positions_deg = {
-                "Q1": math.degrees(joint_map["elbow_pitch"]),
-                "Q2": math.degrees(joint_map["elbow_yaw"]),
-                "Q3": math.degrees(joint_map["wrist_pitch"]),
-                "Q4L": math.degrees(joint_map["jaw_1"]),
-                "Q4R": -math.degrees(joint_map["jaw_1"]) # RJ moves equal and opposite
+                "Q1": convert_rad_to_deg(joint_map["elbow_pitch"]),
+                "Q2": convert_rad_to_deg(joint_map["elbow_yaw"]),
+                "Q3": convert_rad_to_deg(joint_map["wrist_pitch"]),
+                "Q4L": convert_rad_to_deg(joint_map["jaw_1"]),
+                # Q4R moves equal and opposite around the 90-degree center
+                "Q4R": -math.degrees(joint_map["jaw_1"]) + 90.0
             }
             # Put the processed data into the thread-safe queue for the GUI
             self._data_queue.put(target_positions_deg)
@@ -67,7 +73,6 @@ class ROSSubscriberThread(threading.Thread):
         """The main execution method of the thread."""
         try:
             self._log_callback(f"ROS Thread: Subscribing to topic '{self._topic_name}'.")
-            # NEW: Subscribe to JointState message type
             self._subscriber = rospy.Subscriber(self._topic_name, JointState, self._ros_callback)
             
             # This loop keeps the thread alive to receive messages
@@ -77,16 +82,18 @@ class ROSSubscriberThread(threading.Thread):
         except rospy.ROSInterruptException:
             self._log_callback("ROS Thread: Shutdown signal received.")
         except Exception as e:
-            self._log_callback(f"ROS Thread: An error occurred: {e}", level="error")
+            self._log_callback(f"ROS Thread: An error occurred during run: {e}", level="error")
         finally:
+            # Unregister here to ensure it happens as the thread exits.
+            if self._subscriber:
+                self._subscriber.unregister()
+                self._log_callback("ROS Thread: Unsubscribed from topic.")
             self._log_callback("ROS Thread: Exiting.")
 
     def stop(self):
-        """Signals the thread to stop."""
+        """Signals the thread's run loop to terminate."""
         self._log_callback("ROS Thread: Stop signal received.")
         self._is_running = False
-        if self._subscriber:
-            self._subscriber.unregister() # Cleanly unsubscribe
 
 
 class ElbowSimulatorGUI:
@@ -539,6 +546,20 @@ class ElbowSimulatorGUI:
         self.output_text.insert(tk.END, f"{icon} {message}\n", level)
         self.output_text.see(tk.END) # Auto-scroll to the end
 
+    def _save_logs_to_file(self):
+        """Saves the content of the output log to a timestamped text file."""
+        try:
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            filename = f"elbow_gui_log_{timestamp}.txt"
+            log_content = self.output_text.get("1.0", tk.END)
+            
+            with open(filename, "w") as f:
+                f.write(log_content)
+            
+            self.log_message(f"Log saved to {filename}", level="info")
+        except Exception as e:
+            self.log_message(f"Failed to save log file: {e}", level="error")
+
     def _update_connection_status_display(self, message, color, connected): #
         self.status_label.config(text=f"STATUS: {message}") #
         self.connect_button.config(text="[DISCONNECT]" if connected else "[CONNECT]") #
@@ -552,9 +573,39 @@ class ElbowSimulatorGUI:
             self.verbose_button.config(text=f"VERBOSITY: {'ON' if self.is_verbose_arduino_side else 'OFF'}")
             self.log_message(f"Arduino Verbose mode {'ON' if self.is_verbose_arduino_side else 'OFF'}") #
         
-    def _handle_serial_error(self, error_message): #
-        messagebox.showerror("Serial Error", error_message, parent=self.root) #
-        self.log_message(f"ERROR: {error_message}", level="error") #
+    def _handle_serial_error(self, error_message):
+        """Handles serial errors, with special handling for disconnections."""
+        # Check for specific disconnection errors that occur during operation
+        is_disconnection_error = "Lost connection" in error_message or "sending" in error_message
+
+        # Only trigger the full E-stop routine if we thought we were connected
+        if is_disconnection_error and self.serial_handler.is_connected:
+            self.log_message("! E-STOP DETECTED: Serial connection lost.", level="error")
+            
+            # 1. Save logs to a file
+            self._save_logs_to_file()
+
+            # 2. Exit ROS mode if it's active
+            if self.ros_mode_var.get():
+                self.log_message("Disabling ROS mode due to connection loss.")
+                self.ros_mode_var.set(False)
+                self._toggle_ros_mode() # This handles UI updates and thread cleanup
+
+            # 3. Inform the user with a clear pop-up
+            messagebox.showerror("Connection Lost", 
+                                 "Serial connection lost (E-Stop detected).\n"
+                                 "Logs have been saved.\n"
+                                 "Please reconnect the device.", 
+                                 parent=self.root)
+            
+            # 4. Force a disconnect in the handler to clean up internal state
+            # This will also trigger the status_callback to update the GUI
+            self.serial_handler.disconnect()
+        else:
+            # Handle other, more general serial errors
+            if "Not connected" not in error_message: # Avoid spamming this specific error
+                messagebox.showerror("Serial Error", error_message, parent=self.root)
+                self.log_message(f"ERROR: {error_message}", level="error")
 
     def _toggle_connection_action(self): #
         if not self.serial_handler.is_connected: #
