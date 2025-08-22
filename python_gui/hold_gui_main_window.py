@@ -139,14 +139,14 @@ class ElbowSimulatorGUI:
         
         # --- ROS Variables ---
         self.ros_mode_var = tk.BooleanVar(value=False)
-        self.ros_topic_var = tk.StringVar(value="/joint_states") # Default topic
+        self.ros_topic_var = tk.StringVar(value="/cccleft_11/joint_states") # Default topic
         self.ros_status_var = tk.StringVar(value="Status: Inactive")
         self.ros_update_freq_ms = tk.IntVar(value=100) # NEW: Update frequency in ms
         self.ros_queue = queue.Queue()
         self.ros_thread = None
         self.ros_node_initialized = False # Flag to ensure rospy.init_node is called only once
 
-        # --- Sign Convention Variables ---
+        # --- NEW: Sign Convention Variables ---
         self.Q1_invert = 1
         self.Q2_invert = 1
         self.Q3_invert = 1
@@ -157,7 +157,6 @@ class ElbowSimulatorGUI:
         self.q3_dir_var = tk.StringVar(value="South")
         self.q4l_dir_var = tk.StringVar(value="West")
         self.q4r_dir_var = tk.StringVar(value="East")
-        self.invert_buttons = {} # NEW: Dictionary to hold references to invert buttons
 
         #holds the latest direction values for each motor pair, 0 for true neutral, 1 for ccw, -1 for cw
         self.latest_dir = {
@@ -230,18 +229,6 @@ class ElbowSimulatorGUI:
                         relief='flat',
                         padding=6)
         style.map('TButton',
-                  background=[('active', self.FG_COLOR), ('pressed', self.FG_COLOR)],
-                  foreground=[('active', self.BG_COLOR), ('pressed', self.BG_COLOR)])
-        
-        # --- NEW: Style for the "Reset" button state ---
-        style.configure('Reset.TButton',
-                        background=self.BORDER_COLOR,
-                        foreground=self.TEXT_COLOR,
-                        font=self.FONT_HACKER_BOLD,
-                        borderwidth=1,
-                        relief='flat',
-                        padding=6)
-        style.map('Reset.TButton',
                   background=[('active', self.FG_COLOR), ('pressed', self.FG_COLOR)],
                   foreground=[('active', self.BG_COLOR), ('pressed', self.BG_COLOR)])
 
@@ -467,16 +454,12 @@ class ElbowSimulatorGUI:
         for i, (joint_id, dir_var) in enumerate(joint_data, start=1):
             ttk.Label(sign_frame, text=joint_id, anchor="center").grid(row=i, column=0, pady=4)
             ttk.Label(sign_frame, textvariable=dir_var, width=6, anchor="center", foreground=self.FG_COLOR).grid(row=i, column=1, pady=4)
-            
-            # Create and store the button
-            invert_button = ttk.Button(
+            ttk.Button(
                 sign_frame,
                 text="[Invert]",
                 width=8,
                 command=lambda j=joint_id: self._invert_direction(j)
-            )
-            invert_button.grid(row=i, column=2, padx=5, pady=4)
-            self.invert_buttons[joint_id] = invert_button
+            ).grid(row=i, column=2, padx=5, pady=4)
 
     def _invert_direction(self, joint_id):
         """Handles the logic for inverting a joint's positive direction."""
@@ -502,29 +485,6 @@ class ElbowSimulatorGUI:
             elif joint_id == "Q4R": self.Q4R_invert *= -1
             
             self.log_message(f"Sign convention for {joint_id} inverted to '{new_dir}'.")
-            # NEW: Update the button's appearance
-            self._update_invert_button_style(joint_id)
-
-    def _update_invert_button_style(self, joint_id):
-        """Updates the text and style of an invert/reset button based on its state."""
-        invert_var_map = {
-            "Q1": self.Q1_invert,
-            "Q2": self.Q2_invert,
-            "Q3": self.Q3_invert,
-            "Q4L": self.Q4L_invert,
-            "Q4R": self.Q4R_invert,
-        }
-        
-        button = self.invert_buttons.get(joint_id)
-        invert_state = invert_var_map.get(joint_id)
-
-        if not button:
-            return
-
-        if invert_state == -1: # Inverted state
-            button.config(text="[RESET]", style="Reset.TButton")
-        else: # Default state
-            button.config(text="[Invert]", style="TButton")
 
     def _create_positional_control_frame_widgets(self, parent_frame): #
         positional_super_frame = ttk.LabelFrame(parent_frame, text="<POSITIONAL_CONTROL>", padding="10")
@@ -958,18 +918,20 @@ class ElbowSimulatorGUI:
             "RJ": self.cumulative_rj_degrees_var.get(),
         }
         joint_processors = {
-            "EP": (current_abs_positions["EP"], full_joint_degree_deltas["EP"], q1_pl.get_steps, self.latest_dir["EP"]),
-            "EY": (current_abs_positions["EY"], full_joint_degree_deltas["EY"], q2_pl.get_steps, self.latest_dir["EY"]),
-            "WP": (current_abs_positions["WP"], full_joint_degree_deltas["WP"], q3_pl.get_steps, self.latest_dir["WP"]),
-            "LJ": (current_abs_positions["LJ"], full_joint_degree_deltas["LJ"], q4_pl.get_steps_L, self.latest_dir["LJ"]),
-            "RJ": (current_abs_positions["RJ"], full_joint_degree_deltas["RJ"], q4_pl.get_steps_R, self.latest_dir["RJ"]),
+            "EP": (current_abs_positions["EP"], full_joint_degree_deltas["EP"], q1_pl.get_steps, self.latest_dir["EP"], self.Q1_invert),
+            "EY": (current_abs_positions["EY"], full_joint_degree_deltas["EY"], q2_pl.get_steps, self.latest_dir["EY"], self.Q2_invert),
+            "WP": (current_abs_positions["WP"], full_joint_degree_deltas["WP"], q3_pl.get_steps, self.latest_dir["WP"], self.Q3_invert),
+            "LJ": (current_abs_positions["LJ"], full_joint_degree_deltas["LJ"], q4_pl.get_steps_L, self.latest_dir["LJ"], self.Q4L_invert),
+            "RJ": (current_abs_positions["RJ"], full_joint_degree_deltas["RJ"], q4_pl.get_steps_R, self.latest_dir["RJ"], self.Q4R_invert),
         }
+
+
         total_motor_steps = [0] * len(MotorIndex)
-        for joint_name, (curr_theta, delta_theta, get_steps_function, latest_dir) in joint_processors.items():
+        for joint_name, (curr_theta, delta_theta, get_steps_function, latest_dir, invert) in joint_processors.items():
             if delta_theta != 0:
                 try:
                     # self.log_message(f"Calculating for {joint_name}: current={curr_theta:.2f}°, delta={delta_theta:.2f}°")
-                    joint_specific_motor_steps, self.latest_dir[joint_name] = get_steps_function(curr_theta, delta_theta, latest_dir)
+                    joint_specific_motor_steps, self.latest_dir[joint_name] = get_steps_function(curr_theta, delta_theta*invert, latest_dir)
                     for motor_idx_enum in MotorIndex:
                         total_motor_steps[motor_idx_enum.value] += joint_specific_motor_steps[motor_idx_enum.value]
                     # self.log_message(f"  Steps from {joint_name}: {joint_specific_motor_steps}")
@@ -982,11 +944,11 @@ class ElbowSimulatorGUI:
         cmd = f"MOVE_ALL_MOTORS:{steps_str}"
         if self.serial_handler.send_command(cmd):
             # self.log_message(f"Command: {cmd}", level="sent")
-            if full_joint_degree_deltas["EP"] != 0: self.cumulative_ep_degrees_var.set(round(current_abs_positions["EP"] + full_joint_degree_deltas["EP"], 2))
-            if full_joint_degree_deltas["EY"] != 0: self.cumulative_ey_degrees_var.set(round(current_abs_positions["EY"] + full_joint_degree_deltas["EY"], 2))
-            if full_joint_degree_deltas["WP"] != 0: self.cumulative_wp_degrees_var.set(round(current_abs_positions["WP"] + full_joint_degree_deltas["WP"], 2))
-            if full_joint_degree_deltas["LJ"] != 0: self.cumulative_lj_degrees_var.set(round(current_abs_positions["LJ"] + full_joint_degree_deltas["LJ"], 2))
-            if full_joint_degree_deltas["RJ"] != 0: self.cumulative_rj_degrees_var.set(round(current_abs_positions["RJ"] + full_joint_degree_deltas["RJ"], 2))
+            if full_joint_degree_deltas["EP"] != 0: self.cumulative_ep_degrees_var.set(round(current_abs_positions["EP"] + full_joint_degree_deltas["EP"]*self.Q1_invert, 2))
+            if full_joint_degree_deltas["EY"] != 0: self.cumulative_ey_degrees_var.set(round(current_abs_positions["EY"] + full_joint_degree_deltas["EY"]*self.Q2_invert, 2))
+            if full_joint_degree_deltas["WP"] != 0: self.cumulative_wp_degrees_var.set(round(current_abs_positions["WP"] + full_joint_degree_deltas["WP"]*self.Q3_invert, 2))
+            if full_joint_degree_deltas["LJ"] != 0: self.cumulative_lj_degrees_var.set(round(current_abs_positions["LJ"] + full_joint_degree_deltas["LJ"]*self.Q4L_invert, 2))
+            if full_joint_degree_deltas["RJ"] != 0: self.cumulative_rj_degrees_var.set(round(current_abs_positions["RJ"] + full_joint_degree_deltas["RJ"]*self.Q4R_invert, 2))
         else:
             self.log_message("Failed to send command.", level="error")
 

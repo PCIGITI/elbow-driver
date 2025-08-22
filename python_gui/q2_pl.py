@@ -46,19 +46,19 @@ def get_steps(curr_theta, delta_theta, latest_dir):
         print(f"latest_dir didnt change or dir_comp is off: latest_dir = {latest_dir} delta theta = {delta_theta} and dr comp = {cf.DIR_COMP}")
         print("oopsies")
 
-    ## positive ey steps moves us to the right, so we have to lengthen RJR and LJR 
-    ## positive steps_ey --> positive steps RJR LJR
+    ## positive ey steps moves us to the left, so we have to shortehn RJR and LJR 
+    ## positive steps_ey --> negative steps RJR LJR
 
-    motor_steps[MotorIndex.EY] = -steps_ey
+    motor_steps[MotorIndex.EY] = steps_ey
 
     steps_q4 = int(get_jaw_pl(delta_theta)*STEPS_TO_MM_LS)
 
     # [Q1, Q2, WPD (Q3+), WPU (Q3-), RJL (Q4R+), RJR (Q4R-), LJR (Q4L+), LJL (Q4L-)]
 
 
-    motor_steps[MotorIndex.RJL] = steps_q4
-    motor_steps[MotorIndex.LJL] = steps_q4
-    motor_steps[MotorIndex.RJR] = -steps_q4
-    motor_steps[MotorIndex.LJR] = -steps_q4
+    motor_steps[MotorIndex.RJL] = -steps_q4
+    motor_steps[MotorIndex.LJL] = -steps_q4
+    motor_steps[MotorIndex.RJR] = steps_q4
+    motor_steps[MotorIndex.LJR] = steps_q4
 
     return motor_steps, latest_dir
