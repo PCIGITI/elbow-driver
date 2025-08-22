@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import math
 from datetime import datetime
+import time
 
 import config # For constants, MotorIndex
 from config import MotorIndex #
@@ -19,53 +20,41 @@ except ImportError:
     IS_ROS_AVAILABLE = False
 
 # --- Helper Class for ROS Communication ---
-
 class ROSSubscriberThread(threading.Thread):
-    """
-    A dedicated thread to handle ROS node initialization and subscription
-    to avoid blocking the main Tkinter GUI thread.
-    """
-    def __init__(self, topic_name, data_queue, log_callback):
+    def __init__(self, topic_name, data_queue, log_callback, min_interval_sec=0.5):
         super().__init__(daemon=True)
         self._topic_name = topic_name
         self._data_queue = data_queue
         self._log_callback = log_callback
         self._subscriber = None
-        self._stop_event = threading.Event() # Use a threading.Event for safe signaling
+        self._stop_event = threading.Event()
+        self._last_processed_time = 0
+        self._min_interval_sec = min_interval_sec  # Minimum time between processing messages
 
     def _ros_callback(self, msg):
-        """Callback function for the ROS subscriber."""
-        # msg is now a sensor_msgs/JointState
-        try:
-            # Create a dictionary mapping joint names to their positions
-            joint_map = dict(zip(msg.name, msg.position))
+        now = time.time()
+        if now - self._last_processed_time < self._min_interval_sec:
+            return  # Skip this message
+        self._last_processed_time = now
 
-            # Define the joint names we are looking for
+        try:
+            # ...existing message processing code...
+            joint_map = dict(zip(msg.name, msg.position))
             required_joints = ["elbow_pitch", "elbow_yaw", "wrist_pitch", "jaw_1"]
-            
-            # Check if all required joints are in the message
             if not all(joint in joint_map for joint in required_joints):
                 missing = [j for j in required_joints if j not in joint_map]
                 self._log_callback(f"ROS WARNING: Missing joints in message: {missing}", level="warning")
                 return
-
-            # --- NEW: Convert radians to degrees with a 90-degree offset ---
-            # 0 rad -> 90 deg, -pi/2 rad -> 0 deg, +pi/2 rad -> 180 deg
             def convert_rad_to_deg(rad_val):
                 return math.degrees(rad_val) + 90.0
-
-            # Convert radians to degrees and create a dictionary of target positions
             target_positions_deg = {
                 "Q1": convert_rad_to_deg(joint_map["elbow_pitch"]),
                 "Q2": convert_rad_to_deg(joint_map["elbow_yaw"]),
                 "Q3": convert_rad_to_deg(joint_map["wrist_pitch"]),
                 "Q4L": convert_rad_to_deg(joint_map["jaw_1"]),
-                # Q4R moves equal and opposite around the 90-degree center
                 "Q4R": -math.degrees(joint_map["jaw_1"]) + 90.0
             }
-            # Put the processed data into the thread-safe queue for the GUI
             self._data_queue.put(target_positions_deg)
-
         except Exception as e:
             self._log_callback(f"ROS Callback Error: {e}", level="error")
 
