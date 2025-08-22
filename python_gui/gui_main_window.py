@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import math
 from datetime import datetime
-
+import time
 import config # For constants, MotorIndex
 from config import MotorIndex #
 import q1_pl, q2_pl, q3_pl, q4_pl # Joint processors for step calculations
@@ -21,53 +21,43 @@ except ImportError:
 # --- Helper Class for ROS Communication ---
 
 class ROSSubscriberThread(threading.Thread):
-    """
-    A dedicated thread to handle ROS node initialization and subscription
-    to avoid blocking the main Tkinter GUI thread.
-    """
-    def __init__(self, topic_name, data_queue, log_callback):
+    def __init__(self, topic_name, data_queue, log_callback, min_interval_sec=0.5):
         super().__init__(daemon=True)
         self._topic_name = topic_name
         self._data_queue = data_queue
         self._log_callback = log_callback
         self._subscriber = None
-        self._stop_event = threading.Event() # Use a threading.Event for safe signaling
+        self._stop_event = threading.Event()
+        self._last_processed_time = 0
+        self._min_interval_sec = min_interval_sec  # Minimum time between processing messages
 
     def _ros_callback(self, msg):
-        """Callback function for the ROS subscriber."""
-        # msg is now a sensor_msgs/JointState
-        try:
-            # Create a dictionary mapping joint names to their positions
-            joint_map = dict(zip(msg.name, msg.position))
+        now = time.time()
+        if now - self._last_processed_time < self._min_interval_sec:
+            return  # Skip this message
+        self._last_processed_time = now
 
-            # Define the joint names we are looking for
+        try:
+            # ...existing message processing code...
+            joint_map = dict(zip(msg.name, msg.position))
             required_joints = ["elbow_pitch", "elbow_yaw", "wrist_pitch", "jaw_1"]
-            
-            # Check if all required joints are in the message
             if not all(joint in joint_map for joint in required_joints):
                 missing = [j for j in required_joints if j not in joint_map]
                 self._log_callback(f"ROS WARNING: Missing joints in message: {missing}", level="warning")
                 return
-
-            # --- NEW: Convert radians to degrees with a 90-degree offset ---
-            # 0 rad -> 90 deg, -pi/2 rad -> 0 deg, +pi/2 rad -> 180 deg
             def convert_rad_to_deg(rad_val):
                 return math.degrees(rad_val) + 90.0
-
-            # Convert radians to degrees and create a dictionary of target positions
             target_positions_deg = {
                 "Q1": convert_rad_to_deg(joint_map["elbow_pitch"]),
                 "Q2": convert_rad_to_deg(joint_map["elbow_yaw"]),
                 "Q3": convert_rad_to_deg(joint_map["wrist_pitch"]),
                 "Q4L": convert_rad_to_deg(joint_map["jaw_1"]),
-                # Q4R moves equal and opposite around the 90-degree center
                 "Q4R": -math.degrees(joint_map["jaw_1"]) + 90.0
             }
-            # Put the processed data into the thread-safe queue for the GUI
             self._data_queue.put(target_positions_deg)
-
         except Exception as e:
             self._log_callback(f"ROS Callback Error: {e}", level="error")
+
 
     def run(self):
         """The main execution method of the thread."""
@@ -146,19 +136,6 @@ class ElbowSimulatorGUI:
         self.ros_thread = None
         self.ros_node_initialized = False # Flag to ensure rospy.init_node is called only once
 
-        # --- Sign Convention Variables ---
-        self.Q1_invert = 1
-        self.Q2_invert = 1
-        self.Q3_invert = 1
-        self.Q4L_invert = 1
-        self.Q4R_invert = 1
-        self.q1_dir_var = tk.StringVar(value="South")
-        self.q2_dir_var = tk.StringVar(value="West")
-        self.q3_dir_var = tk.StringVar(value="South")
-        self.q4l_dir_var = tk.StringVar(value="West")
-        self.q4r_dir_var = tk.StringVar(value="East")
-        self.invert_buttons = {} # NEW: Dictionary to hold references to invert buttons
-
         #holds the latest direction values for each motor pair, 0 for true neutral, 1 for ccw, -1 for cw
         self.latest_dir = {
             "EP": 0,
@@ -230,18 +207,6 @@ class ElbowSimulatorGUI:
                         relief='flat',
                         padding=6)
         style.map('TButton',
-                  background=[('active', self.FG_COLOR), ('pressed', self.FG_COLOR)],
-                  foreground=[('active', self.BG_COLOR), ('pressed', self.BG_COLOR)])
-        
-        # --- NEW: Style for the "Reset" button state ---
-        style.configure('Reset.TButton',
-                        background=self.BORDER_COLOR,
-                        foreground=self.TEXT_COLOR,
-                        font=self.FONT_HACKER_BOLD,
-                        borderwidth=1,
-                        relief='flat',
-                        padding=6)
-        style.map('Reset.TButton',
                   background=[('active', self.FG_COLOR), ('pressed', self.FG_COLOR)],
                   foreground=[('active', self.BG_COLOR), ('pressed', self.BG_COLOR)])
 
@@ -331,15 +296,8 @@ class ElbowSimulatorGUI:
         self.wrist_yaw_mode_button.grid(row=0, column=1, padx=15, pady=5)
         sys_cmd_frame.columnconfigure(1, weight=1)
 
-        # Row 1: Holds both Manual Control and Sign Conventions
-        controls_container_frame = ttk.Frame(self.main_content_frame)
-        controls_container_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
-        controls_container_frame.columnconfigure(0, weight=1) # Manual controls
-        controls_container_frame.columnconfigure(1, weight=1) # Sign conventions
-
-        # Create the two frames inside the container
-        self._create_joint_control_widgets(controls_container_frame)
-        self._create_sign_conventions_widgets(controls_container_frame)
+        # Row 1: Joint Controls
+        self._create_joint_control_widgets(self.main_content_frame)
 
         # Row 2: ROS Control Frame
         self._create_ros_control_widgets(self.main_content_frame)
@@ -387,7 +345,7 @@ class ElbowSimulatorGUI:
     def _create_joint_control_widgets(self, parent_frame):
         """Creates the new joint control UI as requested."""
         joint_super_frame = ttk.LabelFrame(parent_frame, text="<MANUAL_JOINT_CONTROL>", padding="10")
-        joint_super_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
+        joint_super_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
         joint_super_frame.columnconfigure(0, weight=1)
 
         top_controls_frame = ttk.Frame(joint_super_frame)
@@ -436,95 +394,15 @@ class ElbowSimulatorGUI:
         q4_frame = ttk.Frame(joints_frame)
         q4_frame.grid(row=len(joint_data), column=0, columnspan=3, pady=5)
 
-        ttk.Button(q4_frame, text="[+]", width=4, command=lambda: self._joint_button_action("Q4L", 1)).grid(row=0, column=0)
+        ttk.Button(q4_frame, text="[-]", width=4, command=lambda: self._joint_button_action("Q4L", -1)).grid(row=0, column=0)
         ttk.Label(q4_frame, text="Q4L", anchor="center").grid(row=0, column=1, padx=(2, 8))
-        ttk.Button(q4_frame, text="[-]", width=4, command=lambda: self._joint_button_action("Q4L", -1)).grid(row=0, column=2)
+        ttk.Button(q4_frame, text="[+]", width=4, command=lambda: self._joint_button_action("Q4L", 1)).grid(row=0, column=2)
 
         ttk.Label(q4_frame, text=" (Jaws) ", anchor="center").grid(row=0, column=3, padx=15)
 
-        ttk.Button(q4_frame, text="[-]", width=4, command=lambda: self._joint_button_action("Q4R", -1)).grid(row=0, column=4)
+        ttk.Button(q4_frame, text="[+]", width=4, command=lambda: self._joint_button_action("Q4R", 1)).grid(row=0, column=4)
         ttk.Label(q4_frame, text="Q4R", anchor="center").grid(row=0, column=5, padx=(2, 8))
-        ttk.Button(q4_frame, text="[+]", width=4, command=lambda: self._joint_button_action("Q4R", 1)).grid(row=0, column=6)
-
-    def _create_sign_conventions_widgets(self, parent_frame):
-        """Creates the sign convention display and control widgets."""
-        sign_frame = ttk.LabelFrame(parent_frame, text="<SIGN_CONVENTIONS>", padding="10")
-        sign_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
-
-        # --- Table Headers ---
-        ttk.Label(sign_frame, text="Joint Num", font=self.FONT_HACKER_BOLD).grid(row=0, column=0, padx=5, pady=(0, 5))
-        ttk.Label(sign_frame, text="Positive Dir", font=self.FONT_HACKER_BOLD).grid(row=0, column=1, padx=5, pady=(0, 5))
-
-        # --- Table Data ---
-        joint_data = [
-            ("Q1", self.q1_dir_var),
-            ("Q2", self.q2_dir_var),
-            ("Q3", self.q3_dir_var),
-            ("Q4L", self.q4l_dir_var),
-            ("Q4R", self.q4r_dir_var),
-        ]
-
-        for i, (joint_id, dir_var) in enumerate(joint_data, start=1):
-            ttk.Label(sign_frame, text=joint_id, anchor="center").grid(row=i, column=0, pady=4)
-            ttk.Label(sign_frame, textvariable=dir_var, width=6, anchor="center", foreground=self.FG_COLOR).grid(row=i, column=1, pady=4)
-            
-            # Create and store the button
-            invert_button = ttk.Button(
-                sign_frame,
-                text="[Invert]",
-                width=8,
-                command=lambda j=joint_id: self._invert_direction(j)
-            )
-            invert_button.grid(row=i, column=2, padx=5, pady=4)
-            self.invert_buttons[joint_id] = invert_button
-
-    def _invert_direction(self, joint_id):
-        """Handles the logic for inverting a joint's positive direction."""
-        inversion_map = {
-            "Q1": (self.q1_dir_var, ("South", "North")),
-            "Q2": (self.q2_dir_var, ("West", "East")),
-            "Q3": (self.q3_dir_var, ("South", "North")),
-            "Q4L": (self.q4l_dir_var, ("West", "East")),
-            "Q4R": (self.q4r_dir_var, ("East", "West")),
-        }
-        
-        if joint_id in inversion_map:
-            dir_var, (dir1, dir2) = inversion_map[joint_id]
-            current_dir = dir_var.get()
-            new_dir = dir2 if current_dir == dir1 else dir1
-            dir_var.set(new_dir)
-            
-            # Update the corresponding invert variable
-            if joint_id == "Q1": self.Q1_invert *= -1
-            elif joint_id == "Q2": self.Q2_invert *= -1
-            elif joint_id == "Q3": self.Q3_invert *= -1
-            elif joint_id == "Q4L": self.Q4L_invert *= -1
-            elif joint_id == "Q4R": self.Q4R_invert *= -1
-            
-            self.log_message(f"Sign convention for {joint_id} inverted to '{new_dir}'.")
-            # NEW: Update the button's appearance
-            self._update_invert_button_style(joint_id)
-
-    def _update_invert_button_style(self, joint_id):
-        """Updates the text and style of an invert/reset button based on its state."""
-        invert_var_map = {
-            "Q1": self.Q1_invert,
-            "Q2": self.Q2_invert,
-            "Q3": self.Q3_invert,
-            "Q4L": self.Q4L_invert,
-            "Q4R": self.Q4R_invert,
-        }
-        
-        button = self.invert_buttons.get(joint_id)
-        invert_state = invert_var_map.get(joint_id)
-
-        if not button:
-            return
-
-        if invert_state == -1: # Inverted state
-            button.config(text="[RESET]", style="Reset.TButton")
-        else: # Default state
-            button.config(text="[Invert]", style="TButton")
+        ttk.Button(q4_frame, text="[-]", width=4, command=lambda: self._joint_button_action("Q4R", -1)).grid(row=0, column=6)
 
     def _create_positional_control_frame_widgets(self, parent_frame): #
         positional_super_frame = ttk.LabelFrame(parent_frame, text="<POSITIONAL_CONTROL>", padding="10")
