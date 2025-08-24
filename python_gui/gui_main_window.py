@@ -2,7 +2,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import math
 from datetime import datetime
-import time
+import time 
+import json
 
 import config # For constants, MotorIndex
 from config import MotorIndex #
@@ -30,6 +31,47 @@ class ROSSubscriberThread(threading.Thread):
         self._stop_event = threading.Event()
         self._last_processed_time = 0
         self._min_interval_sec = min_interval_sec  # Minimum time between processing messages
+
+    def _load_settings(self):
+        """Loads settings from a JSON file at startup."""
+        try:
+            with open("gui_settings.json", "r") as f:
+                settings = json.load(f)
+                
+                # Load limit values, providing defaults if a key is missing
+                self.theta1_min_input_var.set(settings.get("theta1_min", "0"))
+                self.theta1_max_input_var.set(settings.get("theta1_max", "4095"))
+                self.theta2_min_input_var.set(settings.get("theta2_min", "0"))
+                self.theta2_max_input_var.set(settings.get("theta2_max", "4095"))
+
+                # Update the "Current" display labels as well
+                self.theta1_min_display_var.set(self.theta1_min_input_var.get())
+                self.theta1_max_display_var.set(self.theta1_max_input_var.get())
+                self.theta2_min_display_var.set(self.theta2_min_input_var.get())
+                self.theta2_max_display_var.set(self.theta2_max_input_var.get())
+                
+                self.log_message("Loaded settings from gui_settings.json.", level="info")
+
+        except FileNotFoundError:
+            self.log_message("No settings file found. Using default values.", level="warning")
+        except Exception as e:
+            self.log_message(f"Error loading settings: {e}", level="error")
+
+    def _save_settings(self):
+        """Saves current settings to a JSON file."""
+        settings = {
+            "theta1_min": self.theta1_min_input_var.get(),
+            "theta1_max": self.theta1_max_input_var.get(),
+            "theta2_min": self.theta2_min_input_var.get(),
+            "theta2_max": self.theta2_max_input_var.get()
+        }
+        try:
+            with open("gui_settings.json", "w") as f:
+                json.dump(settings, f, indent=4)
+            self.log_message("Settings saved to gui_settings.json.", level="info")
+        except Exception as e:
+            self.log_message(f"Error saving settings: {e}", level="error")
+
 
     def _ros_callback(self, msg):
         now = time.time()
@@ -135,6 +177,16 @@ class ElbowSimulatorGUI:
         self.ros_thread = None
         self.ros_node_initialized = False # Flag to ensure rospy.init_node is called only once
 
+        # --- Joint Limit Variables ---
+        self.theta1_min_input_var = tk.StringVar(value="0")
+        self.theta1_max_input_var = tk.StringVar(value="4095")
+        self.theta2_min_input_var = tk.StringVar(value="0")
+        self.theta2_max_input_var = tk.StringVar(value="4095")
+        self.theta1_min_display_var = tk.StringVar(value="N/A")
+        self.theta1_max_display_var = tk.StringVar(value="N/A")
+        self.theta2_min_display_var = tk.StringVar(value="N/A")
+        self.theta2_max_display_var = tk.StringVar(value="N/A")
+
         # --- Sign Convention Variables ---
         self.Q1_invert = 1
         self.Q2_invert = 1
@@ -157,6 +209,7 @@ class ElbowSimulatorGUI:
             "RJ": 0,
         }
 
+        self._load_settings()
         self._setup_main_layout() #
         self._create_widgets() #
         self._create_output_area() # Create the serial output log box
@@ -164,6 +217,47 @@ class ElbowSimulatorGUI:
         self._check_ros_queue() # Start the loop to check for ROS messages
 
         self.log_message(f"// {config.APP_TITLE} INITIALIZED //", level="info")
+
+    def _load_settings(self):
+        """Loads settings from a JSON file at startup."""
+        try:
+            with open("gui_settings.json", "r") as f:
+                settings = json.load(f)
+                
+                # Load limit values, providing defaults if a key is missing
+                self.theta1_min_input_var.set(settings.get("theta1_min", "0"))
+                self.theta1_max_input_var.set(settings.get("theta1_max", "4095"))
+                self.theta2_min_input_var.set(settings.get("theta2_min", "0"))
+                self.theta2_max_input_var.set(settings.get("theta2_max", "4095"))
+
+                # Update the "Current" display labels as well
+                self.theta1_min_display_var.set(self.theta1_min_input_var.get())
+                self.theta1_max_display_var.set(self.theta1_max_input_var.get())
+                self.theta2_min_display_var.set(self.theta2_min_input_var.get())
+                self.theta2_max_display_var.set(self.theta2_max_input_var.get())
+                
+                self.log_message("Loaded settings from gui_settings.json.", level="info")
+
+        except FileNotFoundError:
+            self.log_message("No settings file found. Using default values.", level="warning")
+        except Exception as e:
+            self.log_message(f"Error loading settings: {e}", level="error")
+
+    def _save_settings(self):
+        """Saves current settings to a JSON file."""
+        settings = {
+            "theta1_min": self.theta1_min_input_var.get(),
+            "theta1_max": self.theta1_max_input_var.get(),
+            "theta2_min": self.theta2_min_input_var.get(),
+            "theta2_max": self.theta2_max_input_var.get()
+        }
+        try:
+            with open("gui_settings.json", "w") as f:
+                json.dump(settings, f, indent=4)
+            self.log_message("Settings saved to gui_settings.json.", level="info")
+        except Exception as e:
+            self.log_message(f"Error saving settings: {e}", level="error")
+
 
     def _setup_cyberpunk_style(self):
         """Configures the ttk styles for a cyberpunk hacker theme."""
@@ -333,7 +427,10 @@ class ElbowSimulatorGUI:
         # Row 2: ROS Control Frame
         self._create_ros_control_widgets(self.main_content_frame)
 
-        # Row 3: Inline Positional Control Frame
+        # Row 3: Elbow Joint Limits Frame
+        self._create_joint_limits_widgets(self.main_content_frame)
+
+        # Row 4: Inline Positional Control Frame
         self._create_positional_control_frame_widgets(self.main_content_frame)
     
     def _create_ros_control_widgets(self, parent_frame):
@@ -372,6 +469,53 @@ class ElbowSimulatorGUI:
         self.ros_topic_entry.config(state=tk.DISABLED)
         self.ros_subscribe_button.config(state=tk.DISABLED)
         self.ros_freq_entry.config(state=tk.DISABLED)
+
+    def _create_joint_limits_widgets(self, parent_frame):
+        """Creates the widgets for setting and finding elbow joint limits."""
+        limits_frame = ttk.LabelFrame(parent_frame, text="<ELBOW_JOINT_LIMITS>", padding="10")
+        limits_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
+
+        # Use a sub-frame for better alignment
+        fields_frame = ttk.Frame(limits_frame)
+        fields_frame.grid(row=0, column=0, padx=5, pady=5)
+
+        # --- Input Fields ---
+        # Theta 1 Min
+        ttk.Label(fields_frame, text="Theta 1 Min:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        ttk.Entry(fields_frame, textvariable=self.theta1_min_input_var, width=10, font=self.FONT_HACKER).grid(row=0, column=1, padx=5, pady=2)
+        ttk.Label(fields_frame, text="Current:").grid(row=0, column=2, sticky="e", padx=(10, 2))
+        ttk.Label(fields_frame, textvariable=self.theta1_min_display_var, foreground=self.FG_COLOR).grid(row=0, column=3, sticky="w")
+        
+        # Theta 1 Max
+        ttk.Label(fields_frame, text="Theta 1 Max:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
+        ttk.Entry(fields_frame, textvariable=self.theta1_max_input_var, width=10, font=self.FONT_HACKER).grid(row=1, column=1, padx=5, pady=2)
+        ttk.Label(fields_frame, text="Current:").grid(row=1, column=2, sticky="e", padx=(10, 2))
+        ttk.Label(fields_frame, textvariable=self.theta1_max_display_var, foreground=self.FG_COLOR).grid(row=1, column=3, sticky="w")
+
+        # Theta 2 Min
+        ttk.Label(fields_frame, text="Theta 2 Min:").grid(row=2, column=0, sticky="w", padx=5, pady=2)
+        ttk.Entry(fields_frame, textvariable=self.theta2_min_input_var, width=10, font=self.FONT_HACKER).grid(row=2, column=1, padx=5, pady=2)
+        ttk.Label(fields_frame, text="Current:").grid(row=2, column=2, sticky="e", padx=(10, 2))
+        ttk.Label(fields_frame, textvariable=self.theta2_min_display_var, foreground=self.FG_COLOR).grid(row=2, column=3, sticky="w")
+
+        # Theta 2 Max
+        ttk.Label(fields_frame, text="Theta 2 Max:").grid(row=3, column=0, sticky="w", padx=5, pady=2)
+        ttk.Entry(fields_frame, textvariable=self.theta2_max_input_var, width=10, font=self.FONT_HACKER).grid(row=3, column=1, padx=5, pady=2)
+        ttk.Label(fields_frame, text="Current:").grid(row=3, column=2, sticky="e", padx=(10, 2))
+        ttk.Label(fields_frame, textvariable=self.theta2_max_display_var, foreground=self.FG_COLOR).grid(row=3, column=3, sticky="w")
+        
+        # --- Buttons ---
+        buttons_frame = ttk.Frame(limits_frame)
+        buttons_frame.grid(row=0, column=1, sticky="ns", padx=(20, 5))
+        
+        send_button = ttk.Button(buttons_frame, text="[Send New Values]", command=self._send_update_limits_action)
+        send_button.pack(pady=5, fill=tk.X)
+        
+        find_button = ttk.Button(buttons_frame, text="[Find New Values]", command=self._send_find_limits_action)
+        find_button.pack(pady=5, fill=tk.X)
+        
+        limits_frame.columnconfigure(0, weight=1)
+        limits_frame.columnconfigure(1, weight=0)
 
     def _create_joint_control_widgets(self, parent_frame):
         """Creates the new joint control UI as requested."""
@@ -517,7 +661,7 @@ class ElbowSimulatorGUI:
 
     def _create_positional_control_frame_widgets(self, parent_frame): #
         positional_super_frame = ttk.LabelFrame(parent_frame, text="<POSITIONAL_CONTROL>", padding="10")
-        positional_super_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10) #
+        positional_super_frame.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10) #
 
         input_frame = ttk.LabelFrame(positional_super_frame, text="<Move by Degrees>", padding="10")
         input_frame.grid(row=0, column=0, padx=5, pady=5, sticky="ns") #
@@ -592,8 +736,8 @@ class ElbowSimulatorGUI:
 
     def _create_output_area(self): #
         output_frame = ttk.LabelFrame(self.main_content_frame, text="<OUTPUT_LOG>", padding="5") #
-        output_frame.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5) #
-        self.main_content_frame.grid_rowconfigure(4, weight=1) #
+        output_frame.grid(row=5, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5) #
+        self.main_content_frame.grid_rowconfigure(5, weight=1) #
         self.main_content_frame.grid_columnconfigure(0, weight=1) #
         
         # Using a standard tk.Text widget for full color control
@@ -907,6 +1051,44 @@ class ElbowSimulatorGUI:
             self.serial_handler.send_command(cmd)
             self.log_message(f"Command: {cmd}", level="sent")
 
+    def _send_update_limits_action(self):
+        """Sends the UPDATE_LIMITS command and saves the new values."""
+        try:
+            t1_min = self.theta1_min_input_var.get()
+            t1_max = self.theta1_max_input_var.get()
+            t2_min = self.theta2_min_input_var.get()
+            t2_max = self.theta2_max_input_var.get()
+            
+            int(t1_min); int(t1_max); int(t2_min); int(t2_max)
+
+            cmd = f"UPDATE_LIMITS [{t1_min},{t1_max},{t2_min},{t2_max}]"
+            
+            # Send the command and only update/save if it succeeds
+            if self.serial_handler.send_command(cmd):
+                self.log_message(f"Command: {cmd}", level="sent")
+
+                # Update the "Current" display labels
+                self.theta1_min_display_var.set(t1_min)
+                self.theta1_max_display_var.set(t1_max)
+                self.theta2_min_display_var.set(t2_min)
+                self.theta2_max_display_var.set(t2_max)
+                
+                # Save the new settings to the file immediately
+                self._save_settings()
+            else:
+                 self.log_message("Failed to send UPDATE_LIMITS command.", level="error")
+
+        except ValueError:
+            messagebox.showerror("Input Error", "All limit values must be valid integers.", parent=self.root)
+            self.log_message("Failed to send UPDATE_LIMITS: Invalid input.", level="error")
+
+
+    def _send_find_limits_action(self):
+        """Sends the FIND_LIMITS command."""
+        cmd = "FIND_LIMITS"
+        self.serial_handler.send_command(cmd)
+        self.log_message(f"Command: {cmd}", level="sent")
+
     def _toggle_arduino_verbose_action(self):
         self.serial_handler.send_command("TOGGLE_VERBOSE")
         self.log_message("Command: TOGGLE_VERBOSE", level="sent")
@@ -996,6 +1178,7 @@ class ElbowSimulatorGUI:
 
     def cleanup_on_exit(self):
         self.log_message("Application exiting. Cleaning up...")
+        self._save_settings()
         self._stop_ros_subscriber()
         if self.ros_node_initialized and IS_ROS_AVAILABLE and not rospy.is_shutdown():
             rospy.signal_shutdown("GUI is closing")
