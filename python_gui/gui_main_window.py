@@ -4,6 +4,8 @@ import math
 from datetime import datetime
 import time 
 import json
+import os
+import traceback
 
 import config # For constants, MotorIndex
 from config import MotorIndex #
@@ -31,47 +33,6 @@ class ROSSubscriberThread(threading.Thread):
         self._stop_event = threading.Event()
         self._last_processed_time = 0
         self._min_interval_sec = min_interval_sec  # Minimum time between processing messages
-
-    def _load_settings(self):
-        """Loads settings from a JSON file at startup."""
-        try:
-            with open("gui_settings.json", "r") as f:
-                settings = json.load(f)
-                
-                # Load limit values, providing defaults if a key is missing
-                self.theta1_min_input_var.set(settings.get("theta1_min", "0"))
-                self.theta1_max_input_var.set(settings.get("theta1_max", "4095"))
-                self.theta2_min_input_var.set(settings.get("theta2_min", "0"))
-                self.theta2_max_input_var.set(settings.get("theta2_max", "4095"))
-
-                # Update the "Current" display labels as well
-                self.theta1_min_display_var.set(self.theta1_min_input_var.get())
-                self.theta1_max_display_var.set(self.theta1_max_input_var.get())
-                self.theta2_min_display_var.set(self.theta2_min_input_var.get())
-                self.theta2_max_display_var.set(self.theta2_max_input_var.get())
-                
-                self.log_message("Loaded settings from gui_settings.json.", level="info")
-
-        except FileNotFoundError:
-            self.log_message("No settings file found. Using default values.", level="warning")
-        except Exception as e:
-            self.log_message(f"Error loading settings: {e}", level="error")
-
-    def _save_settings(self):
-        """Saves current settings to a JSON file."""
-        settings = {
-            "theta1_min": self.theta1_min_input_var.get(),
-            "theta1_max": self.theta1_max_input_var.get(),
-            "theta2_min": self.theta2_min_input_var.get(),
-            "theta2_max": self.theta2_max_input_var.get()
-        }
-        try:
-            with open("gui_settings.json", "w") as f:
-                json.dump(settings, f, indent=4)
-            self.log_message("Settings saved to gui_settings.json.", level="info")
-        except Exception as e:
-            self.log_message(f"Error saving settings: {e}", level="error")
-
 
     def _ros_callback(self, msg):
         now = time.time()
@@ -216,12 +177,16 @@ class ElbowSimulatorGUI:
         self._update_control_mode_ui() # Initialize new control UI
         self._check_ros_queue() # Start the loop to check for ROS messages
 
+        self.root.protocol("WM_DELETE_WINDOW", self.cleanup_on_exit)
+
         self.log_message(f"// {config.APP_TITLE} INITIALIZED //", level="info")
 
     def _load_settings(self):
         """Loads settings from a JSON file at startup."""
+        settings_path = os.path.join(os.path.dirname(__file__), "gui_settings.json")
+        
         try:
-            with open("gui_settings.json", "r") as f:
+            with open(settings_path, "r") as f:
                 settings = json.load(f)
                 
                 # Load limit values, providing defaults if a key is missing
@@ -235,8 +200,23 @@ class ElbowSimulatorGUI:
                 self.theta1_max_display_var.set(self.theta1_max_input_var.get())
                 self.theta2_min_display_var.set(self.theta2_min_input_var.get())
                 self.theta2_max_display_var.set(self.theta2_max_input_var.get())
+
+                # Load invert values
+                self.Q1_invert = 1 if settings.get("q1_invert", "0") == "0" else -1
+                self.Q2_invert = 1 if settings.get("q2_invert", "0") == "0" else -1
+                self.Q3_invert = 1 if settings.get("q3_invert", "0") == "0" else -1
+                self.Q4L_invert = 1 if settings.get("q4L_invert", "0") == "0" else -1
+                self.Q4R_invert = 1 if settings.get("q4R_invert", "0") == "0" else -1
+
+                # Update direction variables based on loaded invert values
+                self.q1_dir_var.set("North" if self.Q1_invert == -1 else "South")
+                self.q2_dir_var.set("East" if self.Q2_invert == -1 else "West")
+                self.q3_dir_var.set("North" if self.Q3_invert == -1 else "South")
+                self.q4l_dir_var.set("East" if self.Q4L_invert == -1 else "West")
+                self.q4r_dir_var.set("West" if self.Q4R_invert == -1 else "East")
                 
                 self.log_message("Loaded settings from gui_settings.json.", level="info")
+                self.root.update_idletasks()
 
         except FileNotFoundError:
             self.log_message("No settings file found. Using default values.", level="warning")
@@ -249,15 +229,20 @@ class ElbowSimulatorGUI:
             "theta1_min": self.theta1_min_input_var.get(),
             "theta1_max": self.theta1_max_input_var.get(),
             "theta2_min": self.theta2_min_input_var.get(),
-            "theta2_max": self.theta2_max_input_var.get()
+            "theta2_max": self.theta2_max_input_var.get(),
+            "q1_invert": "1" if self.Q1_invert == -1 else "0",
+            "q2_invert": "1" if self.Q2_invert == -1 else "0",
+            "q3_invert": "1" if self.Q3_invert == -1 else "0",
+            "q4L_invert": "1" if self.Q4L_invert == -1 else "0",
+            "q4R_invert": "1" if self.Q4R_invert == -1 else "0"
         }
         try:
-            with open("gui_settings.json", "w") as f:
+            settings_path = os.path.join(os.path.dirname(__file__), "gui_settings.json")
+            with open(settings_path, "w") as f:
                 json.dump(settings, f, indent=4)
             self.log_message("Settings saved to gui_settings.json.", level="info")
         except Exception as e:
             self.log_message(f"Error saving settings: {e}", level="error")
-
 
     def _setup_cyberpunk_style(self):
         """Configures the ttk styles for a cyberpunk hacker theme."""
@@ -635,9 +620,11 @@ class ElbowSimulatorGUI:
             elif joint_id == "Q4R": self.Q4R_invert *= -1
             
             self.log_message(f"Sign convention for {joint_id} inverted to '{new_dir}'.")
-            # NEW: Update the button's appearance
+            # Update the button's appearance
             self._update_invert_button_style(joint_id)
-
+            # Save the new settings
+            self._save_settings()
+            
     def _update_invert_button_style(self, joint_id):
         """Updates the text and style of an invert/reset button based on its state."""
         invert_var_map = {
