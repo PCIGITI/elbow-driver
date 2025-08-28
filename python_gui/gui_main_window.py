@@ -49,7 +49,9 @@ class ROSSubscriberThread(threading.Thread):
                 self._log_callback(f"ROS WARNING: Missing joints in message: {missing}", level="warning")
                 return
             def convert_rad_to_deg(rad_val):
+                ##add 90 because Teng 0 position is my 90 position
                 return math.degrees(rad_val) + 90.0
+            
             target_positions_deg = {
                 "Q1": convert_rad_to_deg(joint_map["elbow_pitch"]),
                 "Q2": convert_rad_to_deg(joint_map["elbow_yaw"]),
@@ -57,6 +59,8 @@ class ROSSubscriberThread(threading.Thread):
                 "Q4L": convert_rad_to_deg(joint_map["jaw_1"]),
                 "Q4R": -math.degrees(joint_map["jaw_1"]) + 90.0
             }
+
+            self._log_callback(f"ROS Callback: {target_positions_deg}")
             self._data_queue.put(target_positions_deg)
         except Exception as e:
             self._log_callback(f"ROS Callback Error: {e}", level="error")
@@ -780,16 +784,23 @@ class ElbowSimulatorGUI:
         self.output_text.see(tk.END) # Auto-scroll to the end
 
     def _save_logs_to_file(self):
-        """Saves the content of the output log to a timestamped text file."""
+        """Saves the content of the output log to a timestamped text file in a specific directory."""
         try:
-            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            filename = f"elbow_gui_log_{timestamp}.txt"
-            log_content = self.output_text.get("1.0", tk.END)
+            # Create logs directory if it doesn't exist
+            logs_dir = os.path.join(os.path.dirname(__file__), "logs")
+            os.makedirs(logs_dir, exist_ok=True)
             
-            with open(filename, "w") as f:
+            # Create timestamped filename
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            filename = f"elbow_ctrl_log_{timestamp}.txt"
+            filepath = os.path.join(logs_dir, filename)
+            
+            # Save the log content
+            log_content = self.output_text.get("1.0", tk.END)
+            with open(filepath, "w") as f:
                 f.write(log_content)
             
-            self.log_message(f"Log saved to {filename}", level="info")
+            self.log_message(f"Log saved to {filepath}", level="info")
         except Exception as e:
             self.log_message(f"Failed to save log file: {e}", level="error")
 
@@ -861,7 +872,6 @@ class ElbowSimulatorGUI:
         is_wrist_yaw_mode = self.wrist_yaw_mode_var.get()
         self.wrist_yaw_mode_button.config(text="MODE: WRIST_YAW" if is_wrist_yaw_mode else "MODE: JAWS")
 
-        # ... (rest of the logic is unchanged)
         wrist_yaw_target_row = self.lj_target_row if hasattr(self, 'lj_target_row') else 3
         if hasattr(self, 'lj_label') and self.lj_label.winfo_exists():
             if not is_wrist_yaw_mode:
@@ -964,18 +974,18 @@ class ElbowSimulatorGUI:
                 target_positions = self.ros_queue.get_nowait()
                 # self.log_message(f"ROS Command Received: Target {target_positions}")
                 current_abs_positions = {
-                    "EP": self.cumulative_ep_degrees_var.get(),
-                    "EY": self.cumulative_ey_degrees_var.get(),
-                    "WP": self.cumulative_wp_degrees_var.get(),
-                    "LJ": self.cumulative_lj_degrees_var.get(),
-                    "RJ": self.cumulative_rj_degrees_var.get(),
+                    "Q1": self.cumulative_ep_degrees_var.get(),
+                    "Q2": self.cumulative_ey_degrees_var.get(),
+                    "Q3": self.cumulative_wp_degrees_var.get(),
+                    "Q4L": self.cumulative_lj_degrees_var.get(),
+                    "Q4R": self.cumulative_rj_degrees_var.get(),
                 }
                 joint_degree_deltas = {
-                    "EP": target_positions["Q1"] - current_abs_positions["EP"],
-                    "EY": target_positions["Q2"] - current_abs_positions["EY"],
-                    "WP": target_positions["Q3"] - current_abs_positions["WP"],
-                    "LJ": target_positions["Q4L"] - current_abs_positions["LJ"],
-                    "RJ": target_positions["Q4R"] - current_abs_positions["RJ"],
+                    "EP": target_positions["Q1"] - current_abs_positions["Q1"],
+                    "EY": target_positions["Q2"] - current_abs_positions["Q2"],
+                    "WP": target_positions["Q3"] - current_abs_positions["Q3"],
+                    "LJ": target_positions["Q4L"] - current_abs_positions["Q4L"],
+                    "RJ": target_positions["Q4R"] - current_abs_positions["Q4R"],
                 }
                 # self.log_message(f"Calculated Deltas: {joint_degree_deltas}")
                 self._execute_degree_based_move(joint_degree_deltas)
@@ -1158,10 +1168,6 @@ class ElbowSimulatorGUI:
             messagebox.showinfo("Reset", "Cumulative degree display has been reset.", parent=self.root)
         if not is_initial_setup:
             self.log_message("Cumulative degree display reset to reference positions.")
-
-    def _reset_cumulative_degrees_display_from_test_mode(self):
-        self._reset_cumulative_degrees_display_action(from_test_mode=True)
-        self.log_message("Cumulative degrees display reset from 'Set Home'.")
 
     def cleanup_on_exit(self):
         self.log_message("Application exiting. Cleaning up...")

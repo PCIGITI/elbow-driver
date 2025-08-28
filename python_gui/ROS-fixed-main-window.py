@@ -1,3 +1,11 @@
+"""
+THIS FILE IS DEPRECIATED, BUT KEPT FOR REFERENCE AND PROSPERITY
+AUGUST 28 2025
+
+
+"""
+
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 import math

@@ -2,8 +2,7 @@
 ##VERSION: 1.15
 
 import math
-import config
-from config import MotorIndex, STEPS_TO_MM_LS, Q1_DR_COMP, DIR_COMP, ls_steps_from_mm
+from config import MotorIndex, STEPS_TO_MM_LS, STEPS_TO_MM_CAPSTAN, Q1_DR_COMP, ls_steps_from_mm
 from kinematic_model import get_q3_pl
 
 
@@ -74,7 +73,7 @@ def get_steps(curr_theta, delta_theta, latest_dir):
     motor_steps[MotorIndex.EP] = steps_q1+ep_comp ##positive step value here will move EP DOWN , so we want WPD , RJR RJL to lengthen (positive)
 
     #get aux steps
-    q3_pos_steps, q3_neg_steps = int(get_q3_pl(delta_theta)*(STEPS_TO_MM_LS))
+    steps_q3_pos, steps_q3_neg = get_q3_pl(curr_theta, delta_theta)
     steps_q4 = int(get_jaw_pl(delta_theta)*STEPS_TO_MM_LS)
     
     motor_steps[MotorIndex.LJL] = -steps_q4 
@@ -85,8 +84,33 @@ def get_steps(curr_theta, delta_theta, latest_dir):
     motor_steps[MotorIndex.RJR] = steps_q4
 
 
-    motor_steps[MotorIndex.WPU] = steps_q3
-    motor_steps[MotorIndex.WPD] = -steps_q3
+    motor_steps[MotorIndex.WPU] = steps_q3_neg
+    motor_steps[MotorIndex.WPD] = steps_q3_pos
     
     return motor_steps, latest_dir
 
+def sanity_check():
+    """
+    Runs a series of tests on the get_steps function to verify its output
+    for both positive and negative commands.
+    """
+    test_angles = [5, -5]  # Test both directions
+    curr_theta = 90.0      # Assume a neutral starting angle
+    latest_dir = 0         # Assume no previous movement
+
+    print("--- Running Sanity Check for Elbow Pitch (Q1) ---")
+
+    for delta_theta in test_angles:
+        # Calculate the motor steps required for the angle change
+        steps, latest_dir = get_steps(curr_theta, delta_theta, latest_dir)
+        
+        print(f"\nCommanding {delta_theta}° change from {curr_theta}°:")
+        
+        # Iterate directly over the MotorIndex enum to ensure accurate labeling
+        for motor in MotorIndex:
+            # motor.name provides the string name (e.g., "EP")
+            # motor.value provides the integer index (e.g., 6)
+            print(f"{motor.name}: {steps[motor.value]}")
+
+# Add this line at the end of your file to execute the check
+sanity_check()

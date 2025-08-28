@@ -1,14 +1,10 @@
 ##ELBOW YAW MATH
-##VERSION: 1.15
-
-
-##LIMITATIONS: NEUTRAL +- 50 DEGREES!
-##THETA ABODE 140 OR BELOW 40 IS NOT VALID!
 
 import math
 import numpy as np 
 import config as cf
-from config import MotorIndex, STEPS_TO_MM_LS, ls_steps_from_mm
+from config import MotorIndex, STEPS_TO_MM_LS, ls_steps_from_mm, capstan_steps_from_mm
+from kinematic_model import get_q4_pl
 import matplotlib.pyplot as plt
 
 dir_offset = cf.Q2_DR_COMP
@@ -19,7 +15,7 @@ def get_jaw_pl(curr_theta, delta_theta):
 
     ###THIS IS A SIMPLIFIED VERSION THAT HOLDS TRUE IF THETA BETWEEN THE BOUNDARY ANGLE AND THE BOUNDARY ANGLE + 90 DEG
     ##IMPLEMENTING FOR INITIAL TESTING ON JUNE 20
-    delta_q4_pos = math.radians(delta_theta)*r2
+    delta_q4_pos = -math.radians(delta_theta)*r2
     delta_q4_neg = math.radians(delta_theta)*r2
 
     steps_q4_pos = ls_steps_from_mm(delta_q4_pos)
@@ -38,17 +34,18 @@ def get_jaw_pl(curr_theta, delta_theta):
 
 
 def get_steps(curr_theta, delta_theta, latest_dir):
-    print("aug 14 11:04am");
+    
     motor_steps = [0] * len(cf.MotorIndex)  
     if delta_theta == 0:
         return motor_steps, latest_dir
     #curr theta is in degrees between 0 and 180
 
-    delta_ey = math.radians(delta_theta)*EY_effective_radius
-    print("calculated required path length change to be:", delta_ey)
-    steps_ey = int(delta_ey*(cf.STEPS_TO_MM_CAPSTAN))
+    mm_ey = math.radians(delta_theta)*EY_effective_radius
+    print("calculated required path length change to be:", mm_ey)
+    steps_ey = capstan_steps_from_mm(mm_ey)
+    print("calculated required steps to be:", steps_ey)
 
-    if (latest_dir == 0 or latest_dir*delta_theta < 0 and cf.DIR_COMP):
+    """ if (latest_dir == 0 or latest_dir*delta_theta < 0 and cf.DIR_COMP):
         ###latest_dir and delta_theta are not the same direction/sign
         ###have to add compensation and swap direction
         comp = math.copysign(dir_offset, steps_ey)
@@ -60,21 +57,26 @@ def get_steps(curr_theta, delta_theta, latest_dir):
     else:
 
         print(f"latest_dir didnt change or dir_comp is off: latest_dir = {latest_dir} delta theta = {delta_theta} and dr comp = {cf.DIR_COMP}")
-        print("oopsies")
+        print("oopsies") """
 
-    ## positive ey steps moves us to the left, so we have to shortehn RJR and LJR 
-    ## positive steps_ey --> negative steps RJR LJR
 
-    motor_steps[MotorIndex.EY] = steps_ey
+    ## to handle direction change, set this variable to 1 if positive Q2 steps goes LEFT, and -1 if positive Q2 steps go RIGHT
+    positive_q2_dir = 1 
+    
+    ## Positive Q2 steps move to the LEFT, so we need to SHORTEN RJL and LJL
+    ## SHORTEN = NEGATIVE STEPS
+
+    ## POSITIVE Q2 --> POSITIVE STEPS RJR LJR, NEGATIVE STEPS RJL LJL
+
+    
+    motor_steps[MotorIndex.EY] = steps_ey*positive_q2_dir
 
     steps_q4_pos, steps_q4_neg = get_jaw_pl(curr_theta, delta_theta)
 
-    motor_steps[MotorIndex.RJL] = steps_q4_pos
-    motor_steps[MotorIndex.LJL] = steps_q4_pos
-    motor_steps[MotorIndex.RJR] = steps_q4_neg
-    motor_steps[MotorIndex.LJR] = steps_q4_neg
-
-    # [Q1, Q2, WPD (Q3+), WPU (Q3-), RJL (Q4R+), RJR (Q4R-), LJR (Q4L+), LJL (Q4L-)]
+    motor_steps[MotorIndex.RJL] = steps_q4_pos*positive_q2_dir
+    motor_steps[MotorIndex.LJL] = steps_q4_pos*positive_q2_dir
+    motor_steps[MotorIndex.RJR] = steps_q4_neg*positive_q2_dir
+    motor_steps[MotorIndex.LJR] = steps_q4_neg*positive_q2_dir
 
 
     """ motor_steps[MotorIndex.RJL] = -steps_q4
@@ -84,3 +86,21 @@ def get_steps(curr_theta, delta_theta, latest_dir):
     """
 
     return motor_steps, latest_dir
+
+def sanity_check():
+    test_angles = [-5, 5]
+    curr_theta = 0
+    latest_dir = 0
+    # The hardcoded motor_names list is no longer needed.
+
+    for delta_theta in test_angles:
+        steps, latest_dir = get_steps(curr_theta, delta_theta, latest_dir)
+        print(f"\nCommanding {delta_theta} degrees:")
+
+        # Iterate directly over the MotorIndex enum for accurate labeling
+        for motor in MotorIndex:
+            # motor.name provides the string name (e.g., "RJL")
+            # motor.value provides the integer index (e.g., 0)
+            print(f"{motor.name}: {steps[motor.value]}")
+
+sanity_check()
