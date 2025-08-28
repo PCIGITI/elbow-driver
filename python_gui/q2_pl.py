@@ -8,17 +8,33 @@
 import math
 import numpy as np 
 import config as cf
-from config import MotorIndex, STEPS_TO_MM_LS
+from config import MotorIndex, STEPS_TO_MM_LS, ls_steps_from_mm
 import matplotlib.pyplot as plt
 
 dir_offset = cf.Q2_DR_COMP
 EY_effective_radius = 1.3 ##mm
 
-def get_jaw_pl(delta_theta):
+def get_jaw_pl(curr_theta, delta_theta):
     r2 = 1.3
-    delta_s = math.radians(delta_theta)*r2
 
-    return delta_s
+    ###THIS IS A SIMPLIFIED VERSION THAT HOLDS TRUE IF THETA BETWEEN THE BOUNDARY ANGLE AND THE BOUNDARY ANGLE + 90 DEG
+    ##IMPLEMENTING FOR INITIAL TESTING ON JUNE 20
+    delta_q4_pos = math.radians(delta_theta)*r2
+    delta_q4_neg = math.radians(delta_theta)*r2
+
+    steps_q4_pos = ls_steps_from_mm(delta_q4_pos)
+    steps_q4_neg = ls_steps_from_mm(delta_q4_neg)
+
+    """
+    Uncomment this code block when Ali updates Kinematic_model.py
+    q4_pos_curr, q4_pos_neg = get_q4_pl(curr_theta)
+    q4_pos_final, q4_neg_final = get_q4_pl(curr_theta + delta_theta)
+
+    delta_q4_pos = q4_pos_final - q4_pos_curr
+    delta_q4_neg = q4_neg_final - q4_pos_neg
+    """
+
+    return steps_q4_pos, steps_q4_neg
 
 
 def get_steps(curr_theta, delta_theta, latest_dir):
@@ -51,14 +67,20 @@ def get_steps(curr_theta, delta_theta, latest_dir):
 
     motor_steps[MotorIndex.EY] = steps_ey
 
-    steps_q4 = int(get_jaw_pl(delta_theta)*STEPS_TO_MM_LS)
+    steps_q4_pos, steps_q4_neg = get_jaw_pl(curr_theta, delta_theta)
+
+    motor_steps[MotorIndex.RJL] = steps_q4_pos
+    motor_steps[MotorIndex.LJL] = steps_q4_pos
+    motor_steps[MotorIndex.RJR] = steps_q4_neg
+    motor_steps[MotorIndex.LJR] = steps_q4_neg
 
     # [Q1, Q2, WPD (Q3+), WPU (Q3-), RJL (Q4R+), RJR (Q4R-), LJR (Q4L+), LJL (Q4L-)]
 
 
-    motor_steps[MotorIndex.RJL] = -steps_q4
+    """ motor_steps[MotorIndex.RJL] = -steps_q4
     motor_steps[MotorIndex.LJL] = -steps_q4
     motor_steps[MotorIndex.RJR] = steps_q4
     motor_steps[MotorIndex.LJR] = steps_q4
+    """
 
     return motor_steps, latest_dir

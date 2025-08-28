@@ -77,8 +77,23 @@ SERIAL_TIMEOUT = 1
 SERIAL_CONNECT_DELAY = 2 # Time to wait for Arduino reset
 
 # --- CONVERSION FACTORS ---
+
+
+STEPS_PER_REV = 4096
+LEAD_SCREW_PITCH = 0.3 #mm per rev
+CAPSTAN_CIRCUMFERENCE = 15.7 #mm per rev
+
 STEPS_TO_MM_LS = 4096 / 0.3 # (steps_per_rev / mm_per_rev)
 STEPS_TO_MM_CAPSTAN = 4096 / 15.7 # (steps_per_rev / capstan circumfrence)
+
+
+
+def ls_steps_from_mm(mm):
+    return int(mm * STEPS_PER_REV/LEAD_SCREW_PITCH)
+
+def capstan_steps_from_mm(mm):
+    return int(mm * STEPS_PER_REV/CAPSTAN_CIRCUMFERENCE)
+
 # --- DIRECTION CHANGE FACTORS (steps)
 
 DIR_COMP = False
