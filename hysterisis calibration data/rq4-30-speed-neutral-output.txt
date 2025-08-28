@@ -1,1 +1,0 @@
-Arduino: TEST_Q_DONE;duration_ms:34033;steps_LJL:1006;steps_LJR:-1006
