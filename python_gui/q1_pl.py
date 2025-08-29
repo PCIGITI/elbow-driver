@@ -4,6 +4,7 @@
 import math
 from config import MotorIndex, STEPS_TO_MM_LS, STEPS_TO_MM_CAPSTAN, Q1_DR_COMP, ls_steps_from_mm
 from kinematic_model import get_q3_pl
+from experimental_model import get_q3_change
 
 
 dir_offset = Q1_DR_COMP
@@ -18,25 +19,24 @@ def get_jaw_pl(delta_theta):
     return delta_s
 
 def get_q3_pl(curr_theta, delta_theta):
-    ###THIS IS A SIMPLIFIED VERSION THAT HOLDS TRUE IF THETA BETWEEN THE BOUNDARY ANGLE AND THE BOUNDARY ANGLE + 90 DEG
-    ##IMPLEMENTING FOR INITIAL TESTING ON JUNE 20
-    r2 = 1.5
-    delta_q3_pos = -math.radians(delta_theta)*r2
-    delta_q3_neg = math.radians(delta_theta)*r2
+
+    q3_radius = 1.7 #mm
+    curr_theta_rad = math.radians(curr_theta)
+    delta_theta_rad = math.radians(delta_theta)
+    angle_comp_rad = -get_q3_change(curr_theta_rad, delta_theta_rad)
+    mm_comp = angle_comp_rad*q3_radius
+
+    ##a positive predicted change means the pitch will move down, so we must move it up 
+
+    delta_q3_pos = mm_comp
+    delta_q3_neg = -mm_comp
 
     steps_q3_pos = ls_steps_from_mm(delta_q3_pos)
     steps_q3_neg = ls_steps_from_mm(delta_q3_neg)
 
-    """
-    Uncomment this code block when Ali updates Kinematic_model.py
-    q3_pos_curr, q3_pos_neg = get_q3_pl(curr_theta)
-    q3_pos_final, q3_neg_final = get_q3_pl(curr_theta + delta_theta)
-
-    delta_q3_pos = q3_pos_final - q3_pos_curr
-    delta_q3_neg = q3_neg_final - q3_pos_neg
-    """
-
     return steps_q3_pos, steps_q3_neg
+
+
 
 
 def get_steps(curr_theta, delta_theta, latest_dir):
@@ -99,6 +99,7 @@ def sanity_check():
     latest_dir = 0         # Assume no previous movement
 
     print("--- Running Sanity Check for Elbow Pitch (Q1) ---")
+    print("Expected -- positive EP means positive WPD and RJs")
 
     for delta_theta in test_angles:
         # Calculate the motor steps required for the angle change

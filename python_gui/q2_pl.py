@@ -5,32 +5,31 @@ import numpy as np
 import config as cf
 from config import MotorIndex, STEPS_TO_MM_LS, ls_steps_from_mm, capstan_steps_from_mm
 from kinematic_model import get_q4_pl
+from experimental_model import get_q4_change
 import matplotlib.pyplot as plt
 
 dir_offset = cf.Q2_DR_COMP
 EY_effective_radius = 1.3 ##mm
 
 def get_jaw_pl(curr_theta, delta_theta):
-    r2 = 1.3
 
-    ###THIS IS A SIMPLIFIED VERSION THAT HOLDS TRUE IF THETA BETWEEN THE BOUNDARY ANGLE AND THE BOUNDARY ANGLE + 90 DEG
-    ##IMPLEMENTING FOR INITIAL TESTING ON JUNE 20
-    delta_q4_pos = -math.radians(delta_theta)*r2
-    delta_q4_neg = math.radians(delta_theta)*r2
+    q4_radius = 1.35 #mm
+    curr_theta_rad = math.radians(curr_theta)
+    delta_theta_rad = math.radians(delta_theta)
+    angle_comp_rad = -get_q4_change(curr_theta_rad, delta_theta_rad)
+    mm_comp = angle_comp_rad*q4_radius
+
+    ##a positive predicted change means the pitch will move down, so we must move it up 
+
+    delta_q4_pos = mm_comp
+    delta_q4_neg = -mm_comp
 
     steps_q4_pos = ls_steps_from_mm(delta_q4_pos)
     steps_q4_neg = ls_steps_from_mm(delta_q4_neg)
 
-    """
-    Uncomment this code block when Ali updates Kinematic_model.py
-    q4_pos_curr, q4_pos_neg = get_q4_pl(curr_theta)
-    q4_pos_final, q4_neg_final = get_q4_pl(curr_theta + delta_theta)
-
-    delta_q4_pos = q4_pos_final - q4_pos_curr
-    delta_q4_neg = q4_neg_final - q4_pos_neg
-    """
-
     return steps_q4_pos, steps_q4_neg
+
+
 
 
 def get_steps(curr_theta, delta_theta, latest_dir):
