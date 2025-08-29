@@ -91,13 +91,11 @@ def sanity_check():
     test_angles = [-5, 5]
     curr_theta = 0
     latest_dir = 0
-    # The hardcoded motor_names list is no longer needed.
 
     for delta_theta in test_angles:
         steps, latest_dir = get_steps(curr_theta, delta_theta, latest_dir)
         print(f"\nCommanding {delta_theta} degrees:")
 
-        # Iterate directly over the MotorIndex enum for accurate labeling
         for motor in MotorIndex:
             # motor.name provides the string name (e.g., "RJL")
             # motor.value provides the integer index (e.g., 0)

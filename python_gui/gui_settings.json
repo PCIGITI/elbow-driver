@@ -1,8 +1,8 @@
 {
-    "theta1_min": "2093",
-    "theta1_max": "4000",
-    "theta2_min": "0",
-    "theta2_max": "4095",
+    "theta1_min": "2784",
+    "theta1_max": "3837",
+    "theta2_min": "3007",
+    "theta2_max": "4125",
     "q1_invert": "0",
     "q2_invert": "1",
     "q3_invert": "0",

@@ -21,7 +21,7 @@ def get_q3_pl(curr_theta, delta_theta):
     ###THIS IS A SIMPLIFIED VERSION THAT HOLDS TRUE IF THETA BETWEEN THE BOUNDARY ANGLE AND THE BOUNDARY ANGLE + 90 DEG
     ##IMPLEMENTING FOR INITIAL TESTING ON JUNE 20
     r2 = 1.5
-    delta_q3_pos = math.radians(delta_theta)*r2
+    delta_q3_pos = -math.radians(delta_theta)*r2
     delta_q3_neg = math.radians(delta_theta)*r2
 
     steps_q3_pos = ls_steps_from_mm(delta_q3_pos)
@@ -112,5 +112,4 @@ def sanity_check():
             # motor.value provides the integer index (e.g., 6)
             print(f"{motor.name}: {steps[motor.value]}")
 
-# Add this line at the end of your file to execute the check
 sanity_check()
