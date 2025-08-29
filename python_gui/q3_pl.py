@@ -205,3 +205,34 @@ def get_steps(curr_theta, delta_theta, latest_dir):
         motor_steps[cf.MotorIndex.LJL] = steps_lj
         motor_steps[cf.MotorIndex.RJR] = steps_rj
         return motor_steps, latest_dir
+
+# =============================================================================
+# SANITY CHECK
+# =============================================================================
+def run_pl_sanity_check():
+    """
+    Runs a sanity check by calculating and printing the path length (PL)
+    for wrist pitch angles from 0 to 180 degrees.
+    """
+    print("\n--- Running Sanity Check for _calculate_pl_value ---")
+    print("Calculates the path length for Q2 from 0 to 180 degrees.")
+    print("------------------------------------------------------")
+    
+    # Loop through all integer degrees from 0 to 180 inclusive
+    for q2_angle_deg in range(181):
+        try:
+            # Calculate the path length for the current angle
+            pl_value = _calculate_pl_value(float(q2_angle_deg))
+            # Print the result in a formatted string
+            print(f"Q2 Angle: {q2_angle_deg:3d}° -> PL Value: {pl_value:.4f} mm")
+        except Exception as e:
+            # If any calculation error occurs, print it
+            print(f"Q2 Angle: {q2_angle_deg:3d}° -> ERROR: {e}")
+            
+    print("------------------------------------------------------")
+    print("--- Sanity Check Complete ---")
+
+
+# This block ensures the sanity check only runs when the script is executed directly
+if __name__ == "__main__":
+    run_pl_sanity_check()
