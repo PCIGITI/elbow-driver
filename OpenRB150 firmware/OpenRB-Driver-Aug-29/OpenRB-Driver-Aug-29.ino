@@ -35,7 +35,7 @@
   #define DXL_SERIAL Serial1 // Hardware port for DYNAMIXELs
   #define DEBUG_SERIAL Serial   // USB-C port for monitoring and commands
   const int DXL_DIR_PIN = -1; // A value of -1 indicates no direction pin
-#else // Other boards when using a DYNAMIXEL Shield
+  #else // Other boards when using a DYNAMIXEL Shield
   #define DXL_SERIAL   Serial1
   #define DEBUG_SERIAL Serial
   const int DXL_DIR_PIN = 2;
@@ -56,6 +56,9 @@ int theta2_min = 2048;
 int theta2_max = 2048;
 
 int lowerLimitSwitchPin = 10;
+
+int m1_tuned_p = 3000;
+int m2_tuned_p = 2000;
 
 // =============================================================================
 // REFACTORED MOTOR CONFIGURATION (SINGLE SOURCE OF TRUTH)
@@ -162,6 +165,17 @@ void setup() {
       DEBUG_SERIAL.println(")");
       dxl.torqueOff(motor.id);
       dxl.setOperatingMode(motor.id, OP_EXTENDED_POSITION);
+
+      if (motor.id == 1) {
+        // Replace 1250 with the optimal value you found for motor 1
+        dxl.writeControlTableItem(POSITION_P_GAIN, motor.id, m1_tuned_p); 
+        DEBUG_SERIAL.print("      -> Set custom P-Gain: 1250");
+      } else if (motor.id == 2) {
+        // Replace 1200 with the optimal value you found for motor 2
+        dxl.writeControlTableItem(POSITION_P_GAIN, motor.id, m2_tuned_p); 
+        DEBUG_SERIAL.print("      -> Set custom P-Gain: 1200");
+      }
+
     } else {
       DEBUG_SERIAL.print("   > FAILED to find motor ID: ");
       DEBUG_SERIAL.println(motor.id);
@@ -267,6 +281,14 @@ void handleSerialCommands() {
       else if (incomingCommand.startsWith("FIND_LIMITS")){
         findLimits();
       }
+      else  if(incomingCommand.startsWith("UPDATE_LIMITS [")) {
+        int endIndex = incomingCommand.indexOf(']');
+        if (endIndex == -1) {
+          Serial.println("Error: Malformed command, no closing ']' found.");
+          return;
+        }
+        updateLimits(incomingCommand, endIndex);
+      }
       incomingCommand = "";
     } else {
       incomingCommand += incomingChar;
@@ -359,16 +381,9 @@ void parseAndExecuteMoveCommand(String cmd) {
   DEBUG_SERIAL.print("Received Command: ");
   DEBUG_SERIAL.println(cmd);
 
-  if(cmd.startsWith("UPDATE_LIMITS [")) {
-    int endIndex = cmd.indexOf(']');
-    if (endIndex == -1) {
-      Serial.println("Error: Malformed command, no closing ']' found.");
-      return;
-    }
-    updateLimits(cmd, endIndex);
-  }
 
-  else if(cmd.startsWith("FIND LIMITS")){
+
+  if(cmd.startsWith("FIND LIMITS")){
     findLimits();
   }
 
