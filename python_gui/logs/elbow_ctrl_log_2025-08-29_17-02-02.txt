@@ -1,0 +1,54 @@
+[16:54:50.154] ## // Elbow Control Simulator INITIALIZED //
+[16:54:55.275] !! Failed to send UPDATE_LIMITS command.
+[16:54:57.323] !! Failed to send UPDATE_LIMITS command.
+[16:58:03.533] ## Connected to COM8
+[16:58:06.446] ## Disconnected
+[16:58:19.361] ## Connected to COM18
+[16:58:19.365] << Arduino: Setting up motors and limit switches...
+[16:58:19.467] << Arduino: > Found motor: Q1 (ID 1)
+[16:58:19.570] << Arduino: > Found motor: Q2 (ID 2)
+[16:58:19.677] << Arduino: > Found motor: Q4L+ (ID 3)
+[16:58:19.786] << Arduino: - Interrupt attached to pin D6 for motor Q4L+
+[16:58:19.894] << Arduino: > Found motor: Q4L- (ID 4)
+[16:58:19.996] << Arduino: - Interrupt attached to pin D5 for motor Q4L-
+[16:58:20.102] << Arduino: > Found motor: Q4R+ (ID 7)
+[16:58:20.212] << Arduino: - Interrupt attached to pin D4 for motor Q4R+
+[16:58:20.314] << Arduino: > Found motor: Q3- (ID 8)
+[16:58:20.420] << Arduino: - Interrupt attached to pin D7 for motor Q3-
+[16:58:20.522] << Arduino: > Found motor: Q4R- (ID 5)
+[16:58:20.627] << Arduino: - Interrupt attached to pin D0 for motor Q4R-
+[16:58:20.735] << Arduino: > Found motor: Q3+ (ID 6)
+[16:58:20.837] << Arduino: - Interrupt attached to pin D1 for motor Q3+
+[16:58:20.947] << Arduino: Setup complete. Ready for commands.
+[16:58:23.162] >> Command: UPDATE_LIMITS [2850,3768,3196,4282]
+[16:58:23.164] ## Settings saved to gui_settings.json.
+[16:58:30.512] >> Command: FIND_LIMITS
+[16:58:30.792] << Arduino: --- Starting Limit Finding Routine ---
+[16:58:30.898] << Arduino: [Step Q1 until it is at its minimum. Send 's' to step by -100, 'l' to lock limit]
+[17:00:32.943] ## Disconnected
+[17:01:48.472] ## Connected to COM18
+[17:01:48.474] << Arduino: Setting up motors and limit switches...
+[17:01:48.581] << Arduino: > Found motor: Q1 (ID 1)
+[17:01:48.683] << Arduino: > Found motor: Q2 (ID 2)
+[17:01:48.784] << Arduino: > Found motor: Q4L+ (ID 3)
+[17:01:48.886] << Arduino: - Interrupt attached to pin D6 for motor Q4L+
+[17:01:48.989] << Arduino: > Found motor: Q4L- (ID 4)
+[17:01:49.091] << Arduino: - Interrupt attached to pin D5 for motor Q4L-
+[17:01:49.193] << Arduino: > Found motor: Q4R+ (ID 7)
+[17:01:49.295] << Arduino: - Interrupt attached to pin D4 for motor Q4R+
+[17:01:49.397] << Arduino: > Found motor: Q3- (ID 8)
+[17:01:49.500] << Arduino: - Interrupt attached to pin D7 for motor Q3-
+[17:01:49.601] << Arduino: > Found motor: Q4R- (ID 5)
+[17:01:49.704] << Arduino: - Interrupt attached to pin D0 for motor Q4R-
+[17:01:49.806] << Arduino: > Found motor: Q3+ (ID 6)
+[17:01:49.910] << Arduino: - Interrupt attached to pin D1 for motor Q3+
+[17:01:50.011] << Arduino: Setup complete. Ready for commands.
+[17:01:50.933] >> Command: UPDATE_LIMITS [2850,3768,3196,4282]
+[17:01:50.934] ## Settings saved to gui_settings.json.
+[17:01:51.318] << Arduino: Successfully updated motor limits:
+[17:01:51.420] << Arduino: Theta1 Min: 2850
+[17:01:51.522] << Arduino: Theta1 Max: 3768
+[17:01:51.623] << Arduino: Theta2 Min: 3196
+[17:01:51.725] << Arduino: Theta2 Max: 4282
+[17:02:02.069] !! ! E-STOP DETECTED: Serial connection lost.
+

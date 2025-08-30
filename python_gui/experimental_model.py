@@ -227,6 +227,6 @@ if __name__ == '__main__':
          print(f"Movement from {q2_pos_A:.2f} to {q2_pos_B:.2f} -> Predicted delta_q4: {predicted_change_q4:.6f}")
 
     # To see the new, improved plots, uncomment the lines below
-    # visualize_fit(model_choice='q1_q3')
+    #visualize_fit(model_choice='q1_q3')
     visualize_fit(model_choice='q2_q4')
 

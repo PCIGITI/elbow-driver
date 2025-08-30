@@ -1,0 +1,4 @@
+[18:34:35.911] ## // Elbow Control Simulator INITIALIZED //
+[18:34:42.063] ## Connected to COM20
+[18:36:10.146] !! ! E-STOP DETECTED: Serial connection lost.
+

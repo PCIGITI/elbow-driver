@@ -28,8 +28,8 @@ def get_q3_pl(curr_theta, delta_theta):
 
     ##a positive predicted change means the pitch will move down, so we must move it up 
 
-    delta_q3_pos = mm_comp
-    delta_q3_neg = -mm_comp
+    delta_q3_pos = -mm_comp
+    delta_q3_neg = mm_comp
 
     steps_q3_pos = ls_steps_from_mm(delta_q3_pos)
     steps_q3_neg = ls_steps_from_mm(delta_q3_neg)
@@ -94,7 +94,7 @@ def sanity_check():
     Runs a series of tests on the get_steps function to verify its output
     for both positive and negative commands.
     """
-    test_angles = [5, -5]  # Test both directions
+    test_angles = [10.3, -5]  # Test both directions
     curr_theta = 90.0      # Assume a neutral starting angle
     latest_dir = 0         # Assume no previous movement
 
