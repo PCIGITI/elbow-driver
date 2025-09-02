@@ -1,7 +1,7 @@
 {
     "theta1_min": "-200",
-    "theta1_max": "0",
-    "theta2_min": "3000",
+    "theta1_max": "5000",
+    "theta2_min": "100",
     "theta2_max": "5000",
     "q1_invert": "0",
     "q2_invert": "1",

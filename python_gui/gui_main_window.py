@@ -5,7 +5,6 @@ from datetime import datetime
 import time 
 import json
 import os
-import traceback
 
 import config # For constants, MotorIndex
 from config import MotorIndex #
@@ -24,34 +23,30 @@ except ImportError:
 
 # --- Helper Class for ROS Communication ---
 class ROSSubscriberThread(threading.Thread):
-    def __init__(self, topic_name, data_queue, log_callback, min_interval_sec=0.5):
+    # REMOVED: min_interval_sec from the constructor
+    def __init__(self, topic_name, data_queue, log_callback):
         super().__init__(daemon=True)
         self._topic_name = topic_name
         self._data_queue = data_queue
         self._log_callback = log_callback
         self._subscriber = None
         self._stop_event = threading.Event()
-        self._last_processed_time = 0
-        self._min_interval_sec = min_interval_sec  # Minimum time between processing messages
+        # REMOVED: self._last_processed_time and self._min_interval_sec
 
     def _ros_callback(self, msg):
-        now = time.time()
-        if now - self._last_processed_time < self._min_interval_sec:
-            return  # Skip this message
-        self._last_processed_time = now
-
+        # This callback is now extremely fast. It just validates and queues.
         try:
-            # ...existing message processing code...
             joint_map = dict(zip(msg.name, msg.position))
             required_joints = ["elbow_pitch", "elbow_yaw", "wrist_pitch", "jaw_1"]
             if not all(joint in joint_map for joint in required_joints):
-                missing = [j for j in required_joints if j not in joint_map]
-                self._log_callback(f"ROS WARNING: Missing joints in message: {missing}", level="warning")
+                # We can log a warning, but we won't do it on every single message
+                # to avoid spamming the log. A more advanced implementation might
+                # use a flag to only log this once. For now, we'll just return.
                 return
+
             def convert_rad_to_deg(rad_val):
-                ##add 90 because Teng 0 position is my 90 position
                 return math.degrees(rad_val) + 90.0
-            
+
             target_positions_deg = {
                 "Q1": convert_rad_to_deg(joint_map["elbow_pitch"]),
                 "Q2": convert_rad_to_deg(joint_map["elbow_yaw"]),
@@ -59,8 +54,6 @@ class ROSSubscriberThread(threading.Thread):
                 "Q4L": convert_rad_to_deg(joint_map["jaw_1"]),
                 "Q4R": -math.degrees(joint_map["jaw_1"]) + 90.0
             }
-
-            self._log_callback(f"ROS Callback: {target_positions_deg}")
             self._data_queue.put(target_positions_deg)
         except Exception as e:
             self._log_callback(f"ROS Callback Error: {e}", level="error")
@@ -71,9 +64,8 @@ class ROSSubscriberThread(threading.Thread):
             self._log_callback(f"ROS Thread: Subscribing to topic '{self._topic_name}'.")
             self._subscriber = rospy.Subscriber(self._topic_name, JointState, self._ros_callback)
             
-            # Loop until the stop event is set
+            # The loop is simpler now, just waiting for the stop signal.
             while not self._stop_event.is_set() and not rospy.is_shutdown():
-                # wait() with a timeout acts like a sleep but is interruptible
                 self._stop_event.wait(0.1)
 
         except rospy.ROSInterruptException:
@@ -81,7 +73,6 @@ class ROSSubscriberThread(threading.Thread):
         except Exception as e:
             self._log_callback(f"ROS Thread: An error occurred during run: {e}", level="error")
         finally:
-            # Unregister here to ensure it happens as the thread exits.
             if self._subscriber:
                 self._subscriber.unregister()
                 self._log_callback("ROS Thread: Unsubscribed from topic.")
@@ -91,7 +82,6 @@ class ROSSubscriberThread(threading.Thread):
         """Signals the thread's run loop to terminate."""
         self._log_callback("ROS Thread: Stop signal received.")
         self._stop_event.set()
-
 
 class ElbowSimulatorGUI:
     def __init__(self, root, serial_handler): #
@@ -117,14 +107,6 @@ class ElbowSimulatorGUI:
         self.step_degree_input_var = tk.StringVar(value="1.0")
         
         self.wrist_yaw_mode_var = tk.BooleanVar(value=False)  # False = Jaws Mode, True = Wrist Yaw Mode
-
-        # Positional Control Inputs (for the dedicated degree input fields)
-        self.ep_degrees_input_var = tk.StringVar(value="0.0") #
-        self.ey_degrees_input_var = tk.StringVar(value="0.0") #
-        self.wp_degrees_input_var = tk.StringVar(value="0.0") #
-        self.lj_degrees_input_var = tk.StringVar(value="0.0") #
-        self.rj_degrees_input_var = tk.StringVar(value="0.0") #
-        self.wrist_yaw_degrees_var = tk.StringVar(value="0.0") # For Wrist Yaw mode
 
         # Positional Control Cumulative Display
         self.cumulative_ep_degrees_var = tk.DoubleVar(value=90.0) #
@@ -251,21 +233,21 @@ class ElbowSimulatorGUI:
     def _setup_cyberpunk_style(self):
         """Configures the ttk styles for a cyberpunk hacker theme."""
         # --- Color Palette & Fonts ---
-        self.BG_COLOR = "#0D0208"      # Near-black purple
-        self.FG_COLOR = "#00FF9B"      # Bright neon mint/cyan
-        self.TEXT_COLOR = "#EAEAEA"    # Off-white
-        self.ALT_BG_COLOR = "#1a1a1a"  # Dark gray for entry fields/buttons
-        self.BORDER_COLOR = "#FF00FF"  # Magenta for highlights
+        self.BG_COLOR = "#0D0208"       # Near-black purple
+        self.FG_COLOR = "#00FF9B"       # Bright neon mint/cyan
+        self.TEXT_COLOR = "#EAEAEA"     # Off-white
+        self.ALT_BG_COLOR = "#1a1a1a"   # Dark gray for entry fields/buttons
+        self.BORDER_COLOR = "#FF00FF"   # Magenta for highlights
         
-        self.INFO_COLOR = "#00FF9B"    # Neon Mint
-        self.SENT_COLOR = "#00BFFF"    # Deep Sky Blue
+        self.INFO_COLOR = "#00FF9B"     # Neon Mint
+        self.SENT_COLOR = "#00BFFF"     # Deep Sky Blue
         self.RECEIVED_COLOR = "#F0E68C" # Khaki/Yellowish
-        self.ERROR_COLOR = "#FF4136"   # Red
-        self.WARNING_COLOR = "#FF851B" # Orange
+        self.ERROR_COLOR = "#FF4136"    # Red
+        self.WARNING_COLOR = "#FF851B"  # Orange
         self.TIMESTAMP_COLOR = "#888888" # Gray
 
-        self.FONT_HACKER = ("Consolas", 10) # Reduced font size slightly
-        self.FONT_HACKER_BOLD = ("Consolas", 10, "bold") # Reduced font size slightly
+        self.FONT_HACKER = ("Consolas", 11)
+        self.FONT_HACKER_BOLD = ("Consolas", 11, "bold")
 
         # --- Style Configuration ---
         style = ttk.Style(self.root)
@@ -300,7 +282,7 @@ class ElbowSimulatorGUI:
                         font=self.FONT_HACKER_BOLD,
                         borderwidth=1,
                         relief='flat',
-                        padding=4) # Reduced padding
+                        padding=6)
         style.map('TButton',
                   background=[('active', self.FG_COLOR), ('pressed', self.FG_COLOR)],
                   foreground=[('active', self.BG_COLOR), ('pressed', self.BG_COLOR)])
@@ -312,7 +294,7 @@ class ElbowSimulatorGUI:
                         font=self.FONT_HACKER_BOLD,
                         borderwidth=1,
                         relief='flat',
-                        padding=4) # Reduced padding
+                        padding=6)
         style.map('Reset.TButton',
                   background=[('active', self.FG_COLOR), ('pressed', self.FG_COLOR)],
                   foreground=[('active', self.BG_COLOR), ('pressed', self.BG_COLOR)])
@@ -322,7 +304,7 @@ class ElbowSimulatorGUI:
                         background=self.ALT_BG_COLOR,
                         foreground=self.FG_COLOR,
                         font=self.FONT_HACKER,
-                        padding=4, # Reduced padding
+                        padding=6,
                         relief='flat')
         style.map('Toolbutton',
                   background=[('selected', self.BORDER_COLOR), ('active', self.FG_COLOR)],
@@ -343,7 +325,7 @@ class ElbowSimulatorGUI:
                 borderwidth=0,
                 arrowcolor=self.FG_COLOR)
         style.map('Vertical.TScrollbar',
-                  background=[('active', self.FG_COLOR)])
+                background=[('active', self.FG_COLOR)])
 
     def _setup_main_layout(self): #
         self.canvas = tk.Canvas(self.root, borderwidth=0, background=self.BG_COLOR, highlightthickness=0)
@@ -355,8 +337,7 @@ class ElbowSimulatorGUI:
         self.container_frame = ttk.Frame(self.canvas, style='TFrame')
         self.main_frame_id = self.canvas.create_window((0, 0), window=self.container_frame, anchor="nw") #
 
-        # Reduced main frame padding
-        self.main_content_frame = ttk.Frame(self.container_frame, padding="5", style='TFrame') 
+        self.main_content_frame = ttk.Frame(self.container_frame, padding="10", style='TFrame')
         self.main_content_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S)) #
         self.container_frame.columnconfigure(0, weight=1) #
 
@@ -372,28 +353,28 @@ class ElbowSimulatorGUI:
     def _create_widgets(self): #
         # Top frame to hold Connection and System Ops side-by-side
         top_frame = ttk.Frame(self.main_content_frame)
-        top_frame.grid(row=0, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=2) # Reduced pady
+        top_frame.grid(row=0, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
         top_frame.columnconfigure(0, weight=1)
         top_frame.columnconfigure(1, weight=1)
 
         # Column 0: Connection
-        conn_frame = ttk.LabelFrame(top_frame, text="<CONNECTION_LINK>", padding="5") # Reduced padding
+        conn_frame = ttk.LabelFrame(top_frame, text="<CONNECTION_LINK>", padding="10")
         conn_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
-        ttk.Label(conn_frame, text="PORT:").grid(row=0, column=0, padx=5, pady=2) # Reduced pady
+        ttk.Label(conn_frame, text="PORT:").grid(row=0, column=0, padx=5, pady=5)
         self.port_entry = ttk.Entry(conn_frame, width=12, font=self.FONT_HACKER)
         self.port_entry.insert(0, config.DEFAULT_SERIAL_PORT)
-        self.port_entry.grid(row=0, column=1, padx=5, pady=2) # Reduced pady
+        self.port_entry.grid(row=0, column=1, padx=5, pady=5)
         self.connect_button = ttk.Button(conn_frame, text="[CONNECT]", command=self._toggle_connection_action)
-        self.connect_button.grid(row=0, column=2, padx=5, pady=2) # Reduced pady
+        self.connect_button.grid(row=0, column=2, padx=5, pady=5)
         self.status_label = ttk.Label(conn_frame, text="STATUS: STANDBY")
-        self.status_label.grid(row=0, column=3, padx=10, pady=2, sticky=tk.W) # Reduced pady
+        self.status_label.grid(row=0, column=3, padx=10, pady=5, sticky=tk.W)
         conn_frame.columnconfigure(3, weight=1)
 
         # Column 1: System Commands
-        sys_cmd_frame = ttk.LabelFrame(top_frame, text="<SYSTEM_OPS>", padding="5") # Reduced padding
+        sys_cmd_frame = ttk.LabelFrame(top_frame, text="<SYSTEM_OPS>", padding="10")
         sys_cmd_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
         self.verbose_button = ttk.Button(sys_cmd_frame, text="VERBOSITY: OFF", command=self._toggle_arduino_verbose_action)
-        self.verbose_button.grid(row=0, column=0, padx=5, pady=2) # Reduced pady
+        self.verbose_button.grid(row=0, column=0, padx=5, pady=5)
         self.wrist_yaw_mode_button = ttk.Checkbutton(
             sys_cmd_frame,
             text="MODE: JAWS",
@@ -401,12 +382,12 @@ class ElbowSimulatorGUI:
             command=self._update_jaw_mode_ui,
             style="Toolbutton"
         )
-        self.wrist_yaw_mode_button.grid(row=0, column=1, padx=15, pady=2) # Reduced pady
+        self.wrist_yaw_mode_button.grid(row=0, column=1, padx=15, pady=5)
         sys_cmd_frame.columnconfigure(1, weight=1)
 
         # Row 1: Holds both Manual Control and Sign Conventions
         controls_container_frame = ttk.Frame(self.main_content_frame)
-        controls_container_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=2) # Reduced pady
+        controls_container_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
         controls_container_frame.columnconfigure(0, weight=1) # Manual controls
         controls_container_frame.columnconfigure(1, weight=1) # Sign conventions
 
@@ -425,8 +406,8 @@ class ElbowSimulatorGUI:
     
     def _create_ros_control_widgets(self, parent_frame):
         """Creates the widgets for the ROS control feature."""
-        ros_frame = ttk.LabelFrame(parent_frame, text="<ROS_INTERFACE>", padding="5") # Reduced padding
-        ros_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=4) # Reduced pady
+        ros_frame = ttk.LabelFrame(parent_frame, text="<ROS_INTERFACE>", padding="10")
+        ros_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
 
         self.ros_mode_toggle = ttk.Checkbutton(
             ros_frame,
@@ -435,24 +416,24 @@ class ElbowSimulatorGUI:
             command=self._toggle_ros_mode,
             style="Toolbutton"
         )
-        self.ros_mode_toggle.grid(row=0, column=0, padx=5, pady=2) # Reduced pady
+        self.ros_mode_toggle.grid(row=0, column=0, padx=5, pady=5)
 
-        ttk.Label(ros_frame, text="TOPIC:").grid(row=0, column=1, padx=(15, 0), pady=2) # Reduced pady
+        ttk.Label(ros_frame, text="TOPIC:").grid(row=0, column=1, padx=(15, 0), pady=5)
         self.ros_topic_entry = ttk.Entry(ros_frame, textvariable=self.ros_topic_var, width=25, font=self.FONT_HACKER)
-        self.ros_topic_entry.grid(row=0, column=2, padx=5, pady=2) # Reduced pady
+        self.ros_topic_entry.grid(row=0, column=2, padx=5, pady=5)
 
         self.ros_subscribe_button = ttk.Button(
             ros_frame, text="[SUBSCRIBE]", command=self._start_ros_subscriber
         )
-        self.ros_subscribe_button.grid(row=0, column=3, padx=5, pady=2) # Reduced pady
+        self.ros_subscribe_button.grid(row=0, column=3, padx=5, pady=5)
 
         # NEW: Update frequency entry
-        ttk.Label(ros_frame, text="FREQ (ms):").grid(row=0, column=4, padx=(15, 0), pady=2) # Reduced pady
+        ttk.Label(ros_frame, text="FREQ (ms):").grid(row=0, column=4, padx=(15, 0), pady=5)
         self.ros_freq_entry = ttk.Entry(ros_frame, textvariable=self.ros_update_freq_ms, width=8, font=self.FONT_HACKER)
-        self.ros_freq_entry.grid(row=0, column=5, padx=5, pady=2) # Reduced pady
+        self.ros_freq_entry.grid(row=0, column=5, padx=5, pady=5)
 
         self.ros_status_label = ttk.Label(ros_frame, textvariable=self.ros_status_var)
-        self.ros_status_label.grid(row=0, column=6, padx=10, pady=2, sticky=tk.W) # Reduced pady
+        self.ros_status_label.grid(row=0, column=6, padx=10, pady=5, sticky=tk.W)
         
         ros_frame.columnconfigure(6, weight=1)
 
@@ -462,35 +443,34 @@ class ElbowSimulatorGUI:
 
     def _create_joint_limits_widgets(self, parent_frame):
         """Creates the widgets for setting and finding elbow joint limits."""
-        limits_frame = ttk.LabelFrame(parent_frame, text="<ELBOW_JOINT_LIMITS>", padding="5") # Reduced padding
-        limits_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=4) # Reduced pady
-
+        limits_frame = ttk.LabelFrame(parent_frame, text="<ELBOW_JOINT_LIMITS>", padding="10")
+        
         # Use a sub-frame for better alignment
         fields_frame = ttk.Frame(limits_frame)
-        fields_frame.grid(row=0, column=0, padx=5, pady=2) # Reduced pady
+        fields_frame.grid(row=0, column=0, padx=5, pady=5)
 
         # --- Input Fields ---
         # Theta 1 Min
-        ttk.Label(fields_frame, text="Theta 1 Min:").grid(row=0, column=0, sticky="w", padx=5, pady=1) # Reduced pady
-        ttk.Entry(fields_frame, textvariable=self.theta1_min_input_var, width=10, font=self.FONT_HACKER).grid(row=0, column=1, padx=5, pady=1) # Reduced pady
+        ttk.Label(fields_frame, text="Theta 1 Min:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        ttk.Entry(fields_frame, textvariable=self.theta1_min_input_var, width=10, font=self.FONT_HACKER).grid(row=0, column=1, padx=5, pady=2)
         ttk.Label(fields_frame, text="Current:").grid(row=0, column=2, sticky="e", padx=(10, 2))
         ttk.Label(fields_frame, textvariable=self.theta1_min_display_var, foreground=self.FG_COLOR).grid(row=0, column=3, sticky="w")
         
         # Theta 1 Max
-        ttk.Label(fields_frame, text="Theta 1 Max:").grid(row=1, column=0, sticky="w", padx=5, pady=1) # Reduced pady
-        ttk.Entry(fields_frame, textvariable=self.theta1_max_input_var, width=10, font=self.FONT_HACKER).grid(row=1, column=1, padx=5, pady=1) # Reduced pady
+        ttk.Label(fields_frame, text="Theta 1 Max:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
+        ttk.Entry(fields_frame, textvariable=self.theta1_max_input_var, width=10, font=self.FONT_HACKER).grid(row=1, column=1, padx=5, pady=2)
         ttk.Label(fields_frame, text="Current:").grid(row=1, column=2, sticky="e", padx=(10, 2))
         ttk.Label(fields_frame, textvariable=self.theta1_max_display_var, foreground=self.FG_COLOR).grid(row=1, column=3, sticky="w")
 
         # Theta 2 Min
-        ttk.Label(fields_frame, text="Theta 2 Min:").grid(row=2, column=0, sticky="w", padx=5, pady=1) # Reduced pady
-        ttk.Entry(fields_frame, textvariable=self.theta2_min_input_var, width=10, font=self.FONT_HACKER).grid(row=2, column=1, padx=5, pady=1) # Reduced pady
+        ttk.Label(fields_frame, text="Theta 2 Min:").grid(row=2, column=0, sticky="w", padx=5, pady=2)
+        ttk.Entry(fields_frame, textvariable=self.theta2_min_input_var, width=10, font=self.FONT_HACKER).grid(row=2, column=1, padx=5, pady=2)
         ttk.Label(fields_frame, text="Current:").grid(row=2, column=2, sticky="e", padx=(10, 2))
         ttk.Label(fields_frame, textvariable=self.theta2_min_display_var, foreground=self.FG_COLOR).grid(row=2, column=3, sticky="w")
 
         # Theta 2 Max
-        ttk.Label(fields_frame, text="Theta 2 Max:").grid(row=3, column=0, sticky="w", padx=5, pady=1) # Reduced pady
-        ttk.Entry(fields_frame, textvariable=self.theta2_max_input_var, width=10, font=self.FONT_HACKER).grid(row=3, column=1, padx=5, pady=1) # Reduced pady
+        ttk.Label(fields_frame, text="Theta 2 Max:").grid(row=3, column=0, sticky="w", padx=5, pady=2)
+        ttk.Entry(fields_frame, textvariable=self.theta2_max_input_var, width=10, font=self.FONT_HACKER).grid(row=3, column=1, padx=5, pady=2)
         ttk.Label(fields_frame, text="Current:").grid(row=3, column=2, sticky="e", padx=(10, 2))
         ttk.Label(fields_frame, textvariable=self.theta2_max_display_var, foreground=self.FG_COLOR).grid(row=3, column=3, sticky="w")
         
@@ -498,29 +478,22 @@ class ElbowSimulatorGUI:
         buttons_frame = ttk.Frame(limits_frame)
         buttons_frame.grid(row=0, column=1, sticky="ns", padx=(20, 5))
         
-        send_button = ttk.Button(buttons_frame, text="[Send New Values]", command=self._send_update_limits_action)
-        send_button.pack(pady=2, fill=tk.X) # Reduced pady
+        send_button = ttk.Button(buttons_frame, text="[Send Vals]", command=self._send_update_limits_action)
+        send_button.pack(pady=5, fill=tk.X)
         
-        find_button = ttk.Button(buttons_frame, text="[Find New Values]", command=self._send_find_limits_action)
-        find_button.pack(pady=2, fill=tk.X) # Reduced pady
+        find_button = ttk.Button(buttons_frame, text="[Find Vals]", command=self._send_find_limits_action)
+        find_button.pack(pady=5, fill=tk.X)
 
-        S_button = ttk.Button(buttons_frame, text="[S]", command=self._send_S_action)
-        S_button.pack(pady=2, fill=tk.X) # <-- Correct: Call pack on S_button
-
-        L_button = ttk.Button(buttons_frame, text="[L]", command=self._send_L_action)
-        L_button.pack(pady=2, fill=tk.X) # <-- Correct: Call pack on L_button
-                
-        limits_frame.columnconfigure(0, weight=1)
-        limits_frame.columnconfigure(1, weight=0)
+        return limits_frame
 
     def _create_joint_control_widgets(self, parent_frame):
         """Creates the new joint control UI as requested."""
-        joint_super_frame = ttk.LabelFrame(parent_frame, text="<MANUAL_JOINT_CONTROL>", padding="5") # Reduced padding
+        joint_super_frame = ttk.LabelFrame(parent_frame, text="<MANUAL_JOINT_CONTROL>", padding="10")
         joint_super_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
         joint_super_frame.columnconfigure(0, weight=1)
 
         top_controls_frame = ttk.Frame(joint_super_frame)
-        top_controls_frame.pack(pady=2, padx=5) # Reduced pady
+        top_controls_frame.pack(pady=5, padx=5)
 
         self.control_mode_button = ttk.Checkbutton(
             top_controls_frame,
@@ -545,7 +518,7 @@ class ElbowSimulatorGUI:
         self.individual_motor_toggle.pack(side=tk.LEFT, padx=(0, 10))
 
         joints_frame = ttk.Frame(joint_super_frame, padding="5")
-        joints_frame.pack(pady=(2,0)) # Reduced pady
+        joints_frame.pack(pady=(10,0))
 
         joint_data = [
             ("Q1 (Elbow Pitch)", "Q1"),
@@ -555,15 +528,15 @@ class ElbowSimulatorGUI:
 
         for i, (label, joint_id) in enumerate(joint_data):
             neg_btn = ttk.Button(joints_frame, text="[-]", width=4, command=lambda j=joint_id: self._joint_button_action(j, -1))
-            neg_btn.grid(row=i, column=0, padx=5, pady=1) # Reduced pady
+            neg_btn.grid(row=i, column=0, padx=5, pady=2)
             ttk.Label(joints_frame, text=label, width=22, anchor="center").grid(row=i, column=1)
-            ttk.Button(joints_frame, text="[+]", width=4, command=lambda j=joint_id: self._joint_button_action(j, 1)).grid(row=i, column=2, padx=5, pady=1) # Reduced pady
+            ttk.Button(joints_frame, text="[+]", width=4, command=lambda j=joint_id: self._joint_button_action(j, 1)).grid(row=i, column=2, padx=5, pady=2)
             
             if joint_id == "Q1": self.q1_neg_button = neg_btn
             if joint_id == "Q2": self.q2_neg_button = neg_btn
 
         q4_frame = ttk.Frame(joints_frame)
-        q4_frame.grid(row=len(joint_data), column=0, columnspan=3, pady=2) # Reduced pady
+        q4_frame.grid(row=len(joint_data), column=0, columnspan=3, pady=5)
 
         ttk.Button(q4_frame, text="[+]", width=4, command=lambda: self._joint_button_action("Q4L", 1)).grid(row=0, column=0)
         ttk.Label(q4_frame, text="Q4L", anchor="center").grid(row=0, column=1, padx=(2, 8))
@@ -577,12 +550,12 @@ class ElbowSimulatorGUI:
 
     def _create_sign_conventions_widgets(self, parent_frame):
         """Creates the sign convention display and control widgets."""
-        sign_frame = ttk.LabelFrame(parent_frame, text="<SIGN_CONVENTIONS>", padding="5") # Reduced padding
+        sign_frame = ttk.LabelFrame(parent_frame, text="<SIGN_CONVENTIONS>", padding="10")
         sign_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
 
         # --- Table Headers ---
-        ttk.Label(sign_frame, text="Joint Num", font=self.FONT_HACKER_BOLD).grid(row=0, column=0, padx=5, pady=(0, 2)) # Reduced pady
-        ttk.Label(sign_frame, text="Positive Dir", font=self.FONT_HACKER_BOLD).grid(row=0, column=1, padx=5, pady=(0, 2)) # Reduced pady
+        ttk.Label(sign_frame, text="Joint Num", font=self.FONT_HACKER_BOLD).grid(row=0, column=0, padx=5, pady=(0, 5))
+        ttk.Label(sign_frame, text="Positive Dir", font=self.FONT_HACKER_BOLD).grid(row=0, column=1, padx=5, pady=(0, 5))
 
         # --- Table Data ---
         joint_data = [
@@ -594,8 +567,8 @@ class ElbowSimulatorGUI:
         ]
 
         for i, (joint_id, dir_var) in enumerate(joint_data, start=1):
-            ttk.Label(sign_frame, text=joint_id, anchor="center").grid(row=i, column=0, pady=2) # Reduced pady
-            ttk.Label(sign_frame, textvariable=dir_var, width=6, anchor="center", foreground=self.FG_COLOR).grid(row=i, column=1, pady=2) # Reduced pady
+            ttk.Label(sign_frame, text=joint_id, anchor="center").grid(row=i, column=0, pady=4)
+            ttk.Label(sign_frame, textvariable=dir_var, width=6, anchor="center", foreground=self.FG_COLOR).grid(row=i, column=1, pady=4)
             
             # Create and store the button
             invert_button = ttk.Button(
@@ -604,7 +577,7 @@ class ElbowSimulatorGUI:
                 width=8,
                 command=lambda j=joint_id: self._invert_direction(j)
             )
-            invert_button.grid(row=i, column=2, padx=5, pady=1) # Reduced pady
+            invert_button.grid(row=i, column=2, padx=5, pady=4)
             self.invert_buttons[joint_id] = invert_button
 
     def _invert_direction(self, joint_id):
@@ -658,96 +631,60 @@ class ElbowSimulatorGUI:
             button.config(text="[Invert]", style="TButton")
 
     def _create_positional_control_frame_widgets(self, parent_frame): #
-        positional_super_frame = ttk.LabelFrame(parent_frame, text="<POSITIONAL_CONTROL>", padding="5") # Reduced padding
-        positional_super_frame.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=4) # Reduced pady
+        positional_super_frame = ttk.LabelFrame(parent_frame, text="<POSITIONAL_CONTROL>", padding="10")
+        positional_super_frame.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10) #
 
-        input_frame = ttk.LabelFrame(positional_super_frame, text="<Move by Degrees>", padding="5") # Reduced padding
-        input_frame.grid(row=0, column=0, padx=5, pady=2, sticky="ns") # Reduced pady
+        # Create two columns with equal weight
+        positional_super_frame.columnconfigure(0, weight=1)
+        positional_super_frame.columnconfigure(1, weight=1)
 
-        row_idx = 0
-        ttk.Label(input_frame, text="Elbow Pitch (°):").grid(row=row_idx, column=0, sticky="w", pady=1) # Reduced pady
-        self.ep_degrees_entry = ttk.Entry(input_frame, textvariable=self.ep_degrees_input_var, width=10, font=self.FONT_HACKER)
-        self.ep_degrees_entry.grid(row=row_idx, column=1, pady=1) # Reduced pady
-        row_idx += 1
+        # Move joint limits frame to the left column
+        limits_frame = self._create_joint_limits_widgets(positional_super_frame)
+        limits_frame.grid(row=0, column=0, padx=(0, 5), sticky=(tk.N, tk.S, tk.E, tk.W))
 
-        ttk.Label(input_frame, text="Elbow Yaw (°):").grid(row=row_idx, column=0, sticky="w", pady=1) # Reduced pady
-        self.ey_degrees_entry = ttk.Entry(input_frame, textvariable=self.ey_degrees_input_var, width=10, font=self.FONT_HACKER)
-        self.ey_degrees_entry.grid(row=row_idx, column=1, pady=1) # Reduced pady
-        row_idx += 1
-
-        ttk.Label(input_frame, text="Wrist Pitch (°):").grid(row=row_idx, column=0, sticky="w", pady=1) # Reduced pady
-        self.wp_degrees_entry = ttk.Entry(input_frame, textvariable=self.wp_degrees_input_var, width=10, font=self.FONT_HACKER)
-        self.wp_degrees_entry.grid(row=row_idx, column=1, pady=1) # Reduced pady
-        row_idx += 1
-        
-        self.lj_target_row = row_idx
-        self.rj_target_row = row_idx + 1 
-
-        self.wrist_yaw_label = ttk.Label(input_frame, text="Wrist Yaw (°):")
-        self.wrist_yaw_entry = ttk.Entry(input_frame, textvariable=self.wrist_yaw_degrees_var, width=10, font=self.FONT_HACKER)
-
-        self.lj_label = ttk.Label(input_frame, text="Left Jaw (°):") #
-        self.lj_degrees_entry = ttk.Entry(input_frame, textvariable=self.lj_degrees_input_var, width=10, font=self.FONT_HACKER)
-        self.lj_label.grid(row=self.lj_target_row, column=0, sticky="w", pady=1) # Reduced pady
-        self.lj_degrees_entry.grid(row=self.lj_target_row, column=1, pady=1) # Reduced pady
-        row_idx +=1 
-
-        self.rj_label = ttk.Label(input_frame, text="Right Jaw (°):") #
-        self.rj_degrees_entry = ttk.Entry(input_frame, textvariable=self.rj_degrees_input_var, width=10, font=self.FONT_HACKER)
-        self.rj_label.grid(row=self.rj_target_row, column=0, sticky="w", pady=1) # Reduced pady
-        self.rj_degrees_entry.grid(row=self.rj_target_row, column=1, pady=1) # Reduced pady
-        row_idx +=1 
-
-
-        ttk.Button(input_frame, text="[EXECUTE_MOVE]", command=self._dedicated_move_by_degrees_action, width=25).grid(row=row_idx, column=0, columnspan=2, pady=5) # Reduced pady
-
-        cumulative_frame = ttk.LabelFrame(positional_super_frame, text="<CUMULATIVE_POSITION>", padding="5") # Reduced padding
-        cumulative_frame.grid(row=0, column=1, padx=5, pady=2, sticky="ns") # Reduced pady
+        # Create cumulative position display in the right column
+        cumulative_frame = ttk.LabelFrame(positional_super_frame, text="<CUMULATIVE_POSITION>", padding="10")
+        cumulative_frame.grid(row=0, column=1, padx=(5, 0), sticky=(tk.N, tk.S, tk.E, tk.W))
         
         row_idx_cum = 0
-        ttk.Label(cumulative_frame, text="Elbow Pitch:").grid(row=row_idx_cum, column=0, sticky="w", pady=1) # Reduced pady
-        ttk.Label(cumulative_frame, textvariable=self.cumulative_ep_degrees_var, width=8, anchor="e", foreground=self.FG_COLOR).grid(row=row_idx_cum, column=1, sticky="e", pady=1) # Reduced pady
-        ttk.Label(cumulative_frame, text="°").grid(row=row_idx_cum, column=2, sticky="w", pady=1) # Reduced pady
+        ttk.Label(cumulative_frame, text="Elbow Pitch:").grid(row=row_idx_cum, column=0, sticky="w", pady=2)
+        ttk.Label(cumulative_frame, textvariable=self.cumulative_ep_degrees_var, width=8, anchor="e", foreground=self.FG_COLOR).grid(row=row_idx_cum, column=1, sticky="e", pady=2)
+        ttk.Label(cumulative_frame, text="°").grid(row=row_idx_cum, column=2, sticky="w", pady=2)
         row_idx_cum += 1
-        ttk.Label(cumulative_frame, text="Elbow Yaw:").grid(row=row_idx_cum, column=0, sticky="w", pady=1) # Reduced pady
-        ttk.Label(cumulative_frame, textvariable=self.cumulative_ey_degrees_var, width=8, anchor="e", foreground=self.FG_COLOR).grid(row=row_idx_cum, column=1, sticky="e", pady=1) # Reduced pady
-        ttk.Label(cumulative_frame, text="°").grid(row=row_idx_cum, column=2, sticky="w", pady=1) # Reduced pady
+        ttk.Label(cumulative_frame, text="Elbow Yaw:").grid(row=row_idx_cum, column=0, sticky="w", pady=2)
+        ttk.Label(cumulative_frame, textvariable=self.cumulative_ey_degrees_var, width=8, anchor="e", foreground=self.FG_COLOR).grid(row=row_idx_cum, column=1, sticky="e", pady=2)
+        ttk.Label(cumulative_frame, text="°").grid(row=row_idx_cum, column=2, sticky="w", pady=2)
         row_idx_cum += 1
-        ttk.Label(cumulative_frame, text="Wrist Pitch:").grid(row=row_idx_cum, column=0, sticky="w", pady=1) # Reduced pady
-        ttk.Label(cumulative_frame, textvariable=self.cumulative_wp_degrees_var, width=8, anchor="e", foreground=self.FG_COLOR).grid(row=row_idx_cum, column=1, sticky="e", pady=1) # Reduced pady
-        ttk.Label(cumulative_frame, text="°").grid(row=row_idx_cum, column=2, sticky="w", pady=1) # Reduced pady
+        ttk.Label(cumulative_frame, text="Wrist Pitch:").grid(row=row_idx_cum, column=0, sticky="w", pady=2)
+        ttk.Label(cumulative_frame, textvariable=self.cumulative_wp_degrees_var, width=8, anchor="e", foreground=self.FG_COLOR).grid(row=row_idx_cum, column=1, sticky="e", pady=2)
+        ttk.Label(cumulative_frame, text="°").grid(row=row_idx_cum, column=2, sticky="w", pady=2)
         row_idx_cum += 1
-        ttk.Label(cumulative_frame, text="Left Jaw:").grid(row=row_idx_cum, column=0, sticky="w", pady=1) # Reduced pady
-        ttk.Label(cumulative_frame, textvariable=self.cumulative_lj_degrees_var, width=8, anchor="e", foreground=self.FG_COLOR).grid(row=row_idx_cum, column=1, sticky="e", pady=1) # Reduced pady
-        ttk.Label(cumulative_frame, text="°").grid(row=row_idx_cum, column=2, sticky="w", pady=1) # Reduced pady
+        ttk.Label(cumulative_frame, text="Left Jaw:").grid(row=row_idx_cum, column=0, sticky="w", pady=2)
+        ttk.Label(cumulative_frame, textvariable=self.cumulative_lj_degrees_var, width=8, anchor="e", foreground=self.FG_COLOR).grid(row=row_idx_cum, column=1, sticky="e", pady=2)
+        ttk.Label(cumulative_frame, text="°").grid(row=row_idx_cum, column=2, sticky="w", pady=2)
         row_idx_cum += 1
-        ttk.Label(cumulative_frame, text="Right Jaw:").grid(row=row_idx_cum, column=0, sticky="w", pady=1) # Reduced pady
-        ttk.Label(cumulative_frame, textvariable=self.cumulative_rj_degrees_var, width=8, anchor="e", foreground=self.FG_COLOR).grid(row=row_idx_cum, column=1, sticky="e", pady=1) # Reduced pady
-        ttk.Label(cumulative_frame, text="°").grid(row=row_idx_cum, column=2, sticky="w", pady=1) # Reduced pady
+        ttk.Label(cumulative_frame, text="Right Jaw:").grid(row=row_idx_cum, column=0, sticky="w", pady=2)
+        ttk.Label(cumulative_frame, textvariable=self.cumulative_rj_degrees_var, width=8, anchor="e", foreground=self.FG_COLOR).grid(row=row_idx_cum, column=1, sticky="e", pady=2)
+        ttk.Label(cumulative_frame, text="°").grid(row=row_idx_cum, column=2, sticky="w", pady=2)
         row_idx_cum += 1
-        ttk.Button(cumulative_frame, text="[RESET_POSITION]", command=self._reset_cumulative_degrees_display_action, width=25).grid(row=row_idx_cum, column=0, columnspan=3, pady=5) # Reduced pady
-        
-        positional_super_frame.columnconfigure(0, weight=1) #
-        positional_super_frame.columnconfigure(1, weight=1) #
-
-        self._update_jaw_mode_ui() #
+        ttk.Button(cumulative_frame, text="[RESET_POSITION]", command=self._reset_cumulative_degrees_display_action, width=25).grid(row=row_idx_cum, column=0, columnspan=3, pady=10)
 
     def _create_output_area(self): #
         output_frame = ttk.LabelFrame(self.main_content_frame, text="<OUTPUT_LOG>", padding="5") #
-        output_frame.grid(row=5, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=2) # Reduced pady
+        output_frame.grid(row=5, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5) #
         self.main_content_frame.grid_rowconfigure(5, weight=1) #
         self.main_content_frame.grid_columnconfigure(0, weight=1) #
         
         # Using a standard tk.Text widget for full color control
-        self.output_text = tk.Text(output_frame, height=10, width=80, # Reduced height
-                                  background=self.BG_COLOR,
-                                  foreground=self.FG_COLOR,
-                                  insertbackground=self.BORDER_COLOR, # Cursor color
-                                  selectbackground=self.BORDER_COLOR,
-                                  selectforeground=self.TEXT_COLOR,
-                                  borderwidth=0,
-                                  highlightthickness=0,
-                                  font=self.FONT_HACKER)
+        self.output_text = tk.Text(output_frame, height=15, width=80,
+                                   background=self.BG_COLOR,
+                                   foreground=self.FG_COLOR,
+                                   insertbackground=self.BORDER_COLOR, # Cursor color
+                                   selectbackground=self.BORDER_COLOR,
+                                   selectforeground=self.TEXT_COLOR,
+                                   borderwidth=0,
+                                   highlightthickness=0,
+                                   font=self.FONT_HACKER)
         self.output_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S)) #
         
         # --- NEW: Configure color tags for the Text widget ---
@@ -844,10 +781,10 @@ class ElbowSimulatorGUI:
 
             # 3. Inform the user with a clear pop-up
             messagebox.showerror("Connection Lost", 
-                                "Serial connection lost (E-Stop detected).\n"
-                                "Logs have been saved.\n"
-                                "Please reconnect the device.", 
-                                parent=self.root)
+                                 "Serial connection lost (E-Stop detected).\n"
+                                 "Logs have been saved.\n"
+                                 "Please reconnect the device.", 
+                                 parent=self.root)
             
             # 4. Force a disconnect in the handler to clean up internal state
             # This will also trigger the status_callback to update the GUI
@@ -882,22 +819,22 @@ class ElbowSimulatorGUI:
         wrist_yaw_target_row = self.lj_target_row if hasattr(self, 'lj_target_row') else 3
         if hasattr(self, 'lj_label') and self.lj_label.winfo_exists():
             if not is_wrist_yaw_mode:
-                self.lj_label.grid(row=self.lj_target_row, column=0, sticky="w", pady=1) # Reduced pady
-                self.lj_degrees_entry.grid(row=self.lj_target_row, column=1, pady=1) # Reduced pady
+                self.lj_label.grid(row=self.lj_target_row, column=0, sticky="w", pady=2)
+                self.lj_degrees_entry.grid(row=self.lj_target_row, column=1, pady=2)
             else:
                 self.lj_label.grid_remove()
                 self.lj_degrees_entry.grid_remove()
         if hasattr(self, 'rj_label') and self.rj_label.winfo_exists():
             if not is_wrist_yaw_mode:
-                self.rj_label.grid(row=self.rj_target_row, column=0, sticky="w", pady=1) # Reduced pady
-                self.rj_degrees_entry.grid(row=self.rj_target_row, column=1, pady=1) # Reduced pady
+                self.rj_label.grid(row=self.rj_target_row, column=0, sticky="w", pady=2)
+                self.rj_degrees_entry.grid(row=self.rj_target_row, column=1, pady=2)
             else:
                 self.rj_label.grid_remove()
                 self.rj_degrees_entry.grid_remove()
         if hasattr(self, 'wrist_yaw_label') and self.wrist_yaw_label.winfo_exists():
             if is_wrist_yaw_mode:
-                self.wrist_yaw_label.grid(row=wrist_yaw_target_row, column=0, sticky="w", pady=1) # Reduced pady
-                self.wrist_yaw_entry.grid(row=wrist_yaw_target_row, column=1, pady=1) # Reduced pady
+                self.wrist_yaw_label.grid(row=wrist_yaw_target_row, column=0, sticky="w", pady=2)
+                self.wrist_yaw_entry.grid(row=wrist_yaw_target_row, column=1, pady=2)
             else:
                 self.wrist_yaw_label.grid_remove()
                 self.wrist_yaw_entry.grid_remove()
@@ -946,11 +883,9 @@ class ElbowSimulatorGUI:
             messagebox.showwarning("Input Error", "Please provide a ROS topic name.", parent=self.root)
             return
 
-        # Initialize the ROS node in the main thread, only once.
         if not self.ros_node_initialized:
             try:
                 self.log_message("Initializing ROS node for the first time...")
-                # disable_signals=True is crucial to prevent the error in a Tkinter GUI
                 rospy.init_node('elbow_gui_controller', anonymous=True, disable_signals=True)
                 self.ros_node_initialized = True
                 self.log_message("ROS node initialized successfully.")
@@ -959,10 +894,11 @@ class ElbowSimulatorGUI:
                 self.ros_status_var.set("Status: Node Init Failed")
                 return
 
-        # Now that the node is initialized, start the subscriber thread
         self.ros_status_var.set(f"Status: Subscribing...")
+        # UPDATED: Call the new constructor without the frequency argument
         self.ros_thread = ROSSubscriberThread(topic_name, self.ros_queue, self.log_message)
         self.ros_thread.start()
+
 
     def _stop_ros_subscriber(self):
         if self.ros_thread and self.ros_thread.is_alive():
@@ -975,11 +911,23 @@ class ElbowSimulatorGUI:
             self.log_message("ROS subscription stopped.")
 
     def _check_ros_queue(self):
-        """Processes all messages in the queue for real-time control."""
-        while not self.ros_queue.empty():
+        """
+        Periodically checks the ROS queue. It drains the queue to get the
+        most recent command and then executes the move. This ensures the
+        GUI is responsive and acts on the latest data.
+        """
+        latest_target_positions = None
+        try:
+            # Drain the queue, keeping only the last item.
+            while not self.ros_queue.empty():
+                latest_target_positions = self.ros_queue.get_nowait()
+        except queue.Empty:
+            pass # This is expected, just means we're done.
+
+        # Only proceed if we actually got a message from the queue.
+        if latest_target_positions:
             try:
-                target_positions = self.ros_queue.get_nowait()
-                # self.log_message(f"ROS Command Received: Target {target_positions}")
+                # self.log_message(f"ROS Command Received: Target {latest_target_positions}")
                 current_abs_positions = {
                     "Q1": self.cumulative_ep_degrees_var.get(),
                     "Q2": self.cumulative_ey_degrees_var.get(),
@@ -988,21 +936,18 @@ class ElbowSimulatorGUI:
                     "Q4R": self.cumulative_rj_degrees_var.get(),
                 }
                 joint_degree_deltas = {
-                    "EP": target_positions["Q1"] - current_abs_positions["Q1"],
-                    "EY": target_positions["Q2"] - current_abs_positions["Q2"],
-                    "WP": target_positions["Q3"] - current_abs_positions["Q3"],
-                    "LJ": target_positions["Q4L"] - current_abs_positions["Q4L"],
-                    "RJ": target_positions["Q4R"] - current_abs_positions["Q4R"],
+                    "EP": latest_target_positions["Q1"] - current_abs_positions["Q1"],
+                    "EY": latest_target_positions["Q2"] - current_abs_positions["Q2"],
+                    "WP": latest_target_positions["Q3"] - current_abs_positions["Q3"],
+                    "LJ": latest_target_positions["Q4L"] - current_abs_positions["Q4L"],
+                    "RJ": latest_target_positions["Q4R"] - current_abs_positions["Q4R"],
                 }
                 # self.log_message(f"Calculated Deltas: {joint_degree_deltas}")
                 self._execute_degree_based_move(joint_degree_deltas)
-            except queue.Empty:
-                # This can happen in a race condition, it's safe to just break the loop
-                break
             except Exception as e:
                 self.log_message(f"Error processing ROS queue: {e}", level="error")
         
-        # Schedule the next check
+        # Schedule the next check, controlled by the GUI entry field.
         self.root.after(self.ros_update_freq_ms.get(), self._check_ros_queue)
 
     def _joint_button_action(self, joint, sign):
@@ -1036,8 +981,8 @@ class ElbowSimulatorGUI:
                     motor_steps[motor_to_move] = steps_value
                     self.log_message(f"Individual Motor Step: {motor_to_move.name} by {steps_value} steps", level="sent")
                 else:
-                    self.log_message(f"Invalid individual motor command: {joint} sign {sign}", level="warning")
-                    return
+                     self.log_message(f"Invalid individual motor command: {joint} sign {sign}", level="warning")
+                     return
             else:
                 applied_value = value * sign
                 steps = int(applied_value)
@@ -1093,17 +1038,6 @@ class ElbowSimulatorGUI:
         self.serial_handler.send_command(cmd)
         self.log_message(f"Command: {cmd}", level="sent")
 
-    def _send_L_action(self):
-        cmd = "L"
-        self.serial_handler.send_command(cmd)
-        self.log_message(f"Command: {cmd}", level="sent")
-    
-    def _send_S_action(self):
-        cmd = "S"
-        self.serial_handler.send_command(cmd)
-        self.log_message(f"Command: {cmd}", level="sent")
-
-
     def _toggle_arduino_verbose_action(self):
         self.serial_handler.send_command("TOGGLE_VERBOSE")
         self.log_message("Command: TOGGLE_VERBOSE", level="sent")
@@ -1158,9 +1092,9 @@ class ElbowSimulatorGUI:
                     joint_specific_motor_steps, self.latest_dir[joint_name] = get_steps_function(curr_theta, delta_theta, latest_dir)
                     for motor_idx_enum in MotorIndex:
                         total_motor_steps[motor_idx_enum.value] += joint_specific_motor_steps[motor_idx_enum.value]
-                    # self.log_message(f"  Steps from {joint_name}: {joint_specific_motor_steps}")
+                    # self.log_message(f"  Steps from {joint_name}: {joint_specific_motor_steps}")
                 except Exception as e:
-                    self.log_message(f"  Error in {get_steps_function.__name__} for {joint_name}: {e}", level="error")
+                    self.log_message(f"  Error in {get_steps_function.__name__} for {joint_name}: {e}", level="error")
                     import traceback; self.log_message(traceback.format_exc(), level="error")
         final_integer_steps = [int(round(s)) for s in total_motor_steps]
         # self.log_message(f"Final Combined Steps: {final_integer_steps}")
