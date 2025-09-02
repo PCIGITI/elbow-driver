@@ -484,6 +484,14 @@ class ElbowSimulatorGUI:
         find_button = ttk.Button(buttons_frame, text="[Find Vals]", command=self._send_find_limits_action)
         find_button.pack(pady=5, fill=tk.X)
 
+        S_Button = ttk.Button(buttons_frame, text="[S]", command=self._send_S_action)
+        S_Button.pack(pady=5, fill=tk.X)
+
+        L_Button = ttk.Button(buttons_frame, text="[L]", command=self._send_L_action)
+        L_Button.pack(pady=5, fill=tk.X)
+
+
+
         return limits_frame
 
     def _create_joint_control_widgets(self, parent_frame):
@@ -1035,6 +1043,19 @@ class ElbowSimulatorGUI:
     def _send_find_limits_action(self):
         """Sends the FIND_LIMITS command."""
         cmd = "FIND_LIMITS"
+        self.serial_handler.send_command(cmd)
+        self.log_message(f"Command: {cmd}", level="sent")
+
+    def _send_L_action(self):
+        """Sends the L command."""
+        cmd = "L"
+        self.serial_handler.send_command(cmd)
+        self.log_message(f"Command: {cmd}", level="sent")
+
+
+    def _send_S_action(self):
+        """Sends the S command"""
+        cmd = "S"
         self.serial_handler.send_command(cmd)
         self.log_message(f"Command: {cmd}", level="sent")
 

@@ -7,15 +7,18 @@ POLYNOMIAL_DEGREE = 4
 _script_dir = os.path.dirname(os.path.abspath(__file__))
 
 # Build absolute paths to the data files. This is the most reliable method.
-# It ensures the script can find the files as long as they are in the same
-# folder as the script itself, regardless of where you run it from.
 DATA_FILEPATH_Q1_Q3 = os.path.join(_script_dir, 'q1q3-angles-29-aug.txt')
 DATA_FILEPATH_Q2_Q4 = os.path.join(_script_dir, 'q2q4-angles-29-aug.txt')
+# NEW: Filepath for the second-layer compensation data
+DATA_FILEPATH_Q2_Q4_COMP = os.path.join(_script_dir, 'q2-q4-comp.txt')
 
 
 # --- Global Model Variables (initialized on first use) ---
 _model_q1_q3 = None
 _model_q2_q4 = None
+# NEW: Model for the second-layer compensation
+_model_q2_q4_comp = None
+
 
 def _remove_outliers_iqr(x_data, y_data):
     """
@@ -76,10 +79,7 @@ def _initialize_q1_q3_model():
     try:
         data = np.loadtxt(DATA_FILEPATH_Q1_Q3, delimiter=',')
         q1_data, q3_data = data[:, 0], data[:, 1]
-
-        # Use the cleaning function with a valid range only for the independent variable (q1)
         q1_clean, q3_clean = _clean_data(q1_data, q3_data, x_valid_range=(0, 3))
-        
         coeffs = np.polyfit(q1_clean, q3_clean, POLYNOMIAL_DEGREE)
         _model_q1_q3 = np.poly1d(coeffs)
         print("Q1->Q3 coupling model initialized successfully on cleaned data.")
@@ -95,13 +95,10 @@ def _initialize_q2_q4_model():
     try:
         data = np.loadtxt(DATA_FILEPATH_Q2_Q4, delimiter=',')
         q2_data, q4_data = data[:, 0], data[:, 1]
-        
-        # Use the cleaning function with valid ranges for both independent (q2) and dependent (q4) variables
         q2_clean, q4_clean = _clean_data(q2_data, q4_data, x_valid_range=(0, 3), y_valid_range=(0, 4))
-
         coeffs = np.polyfit(q2_clean, q4_clean, POLYNOMIAL_DEGREE)
         _model_q2_q4 = np.poly1d(coeffs)
-        print("Q2->Q4 coupling model initialized successfully on cleaned data.")
+        print("Q2->Q4 coupling model (Layer 1) initialized successfully on cleaned data.")
     except FileNotFoundError:
         print(f"CRITICAL ERROR: Data file not found for Q2->Q4 model at '{DATA_FILEPATH_Q2_Q4}'.")
         _model_q2_q4 = None
@@ -109,6 +106,27 @@ def _initialize_q2_q4_model():
         print(f"CRITICAL ERROR: Could not initialize Q2->Q4 model from '{DATA_FILEPATH_Q2_Q4}'. Error: {e}")
         _model_q2_q4 = None
 
+def _initialize_q2_q4_comp_model():
+    """
+    NEW: Internal function to build the second-layer Q2->Q4 compensation model.
+    """
+    global _model_q2_q4_comp
+    try:
+        data = np.loadtxt(DATA_FILEPATH_Q2_Q4_COMP, delimiter=',')
+        q2_data, q4_residual_data = data[:, 0], data[:, 1]
+        
+        # Clean the compensation data. Based on the provided file, the valid ranges are different.
+        q2_clean, q4_clean = _clean_data(q2_data, q4_residual_data, x_valid_range=(0, 3), y_valid_range=(0, 3.0))
+
+        coeffs = np.polyfit(q2_clean, q4_clean, POLYNOMIAL_DEGREE)
+        _model_q2_q4_comp = np.poly1d(coeffs)
+        print("Q2->Q4 compensation model (Layer 2) initialized successfully.")
+    except FileNotFoundError:
+        print(f"CRITICAL ERROR: Data file not found for Q2->Q4 compensation model at '{DATA_FILEPATH_Q2_Q4_COMP}'.")
+        _model_q2_q4_comp = None
+    except Exception as e:
+        print(f"CRITICAL ERROR: Could not initialize Q2->Q4 compensation model. Error: {e}")
+        _model_q2_q4_comp = None
 
 def get_q3_change(current_q1: float, delta_q1: float) -> float:
     """
@@ -132,12 +150,18 @@ def get_q3_change(current_q1: float, delta_q1: float) -> float:
 
 def get_q4_change(current_q2: float, delta_q2: float) -> float:
     """
-    Calculates the expected change in Q4 for a given movement of Q2.
+    MODIFIED: Calculates the expected change in Q4 for a given movement of Q2,
+    now including a two-layer compensation model.
     """
+    # Ensure the first-layer model is initialized
     if _model_q2_q4 is None:
         _initialize_q2_q4_model()
         if _model_q2_q4 is None:
-            return 0.0
+            return 0.0 # Cannot proceed if the primary model fails
+
+    # Ensure the second-layer compensation model is initialized
+    if _model_q2_q4_comp is None:
+        _initialize_q2_q4_comp_model()
 
     if delta_q2 == 0:
         return 0.0
@@ -145,10 +169,22 @@ def get_q4_change(current_q2: float, delta_q2: float) -> float:
     q2_initial = current_q2
     q2_final = current_q2 + delta_q2
 
-    q4_initial_predicted = _model_q2_q4(q2_initial)
-    q4_final_predicted = _model_q2_q4(q2_final)
+    # --- Layer 1 Compensation ---
+    q4_initial_predicted_L1 = _model_q2_q4(q2_initial)
+    q4_final_predicted_L1 = _model_q2_q4(q2_final)
+    delta_q4_L1 = q4_final_predicted_L1 - q4_initial_predicted_L1
     
-    return q4_final_predicted - q4_initial_predicted
+    # --- Layer 2 Compensation (only if the model loaded successfully) ---
+    delta_q4_L2 = 0.0
+    if _model_q2_q4_comp is not None:
+        q4_initial_predicted_L2 = _model_q2_q4_comp(q2_initial)
+        q4_final_predicted_L2 = _model_q2_q4_comp(q2_final)
+        delta_q4_L2 = q4_final_predicted_L2 - q4_initial_predicted_L2
+
+    # --- Combine the compensations ---
+    total_delta_q4 = delta_q4_L1 + delta_q4_L2
+    
+    return total_delta_q4
 
 # --- Optional: For testing and visualization ---
 def visualize_fit(model_choice='q1_q3'):
@@ -160,28 +196,30 @@ def visualize_fit(model_choice='q1_q3'):
     if model_choice == 'q1_q3':
         if _model_q1_q3 is None: _initialize_q1_q3_model()
         if _model_q1_q3 is None: return
-        
-        model_to_plot = _model_q1_q3
-        filepath = DATA_FILEPATH_Q1_Q3
+        model_to_plot, filepath = _model_q1_q3, DATA_FILEPATH_Q1_Q3
         x_label, y_label = "Q1 Position (radians)", "Q3 Position (radians)"
         title = "Model Fit for Q1 vs. Q3 (Multi-Step Cleaning)"
-        y_valid_range = None
-        x_valid_range = (0, 3)
-
+        x_valid_range, y_valid_range = (0, 3), None
 
     elif model_choice == 'q2_q4':
         if _model_q2_q4 is None: _initialize_q2_q4_model()
         if _model_q2_q4 is None: return
-
-        model_to_plot = _model_q2_q4
-        filepath = DATA_FILEPATH_Q2_Q4
+        model_to_plot, filepath = _model_q2_q4, DATA_FILEPATH_Q2_Q4
         x_label, y_label = "Q2 Position (radians)", "Q4 Position (radians)"
-        title = "Model Fit for Q2 vs. Q4 (Multi-Step Cleaning)"
-        y_valid_range = (0, 4)
-        x_valid_range = (0, 3)
+        title = "Model Fit for Q2 vs. Q4 (Layer 1)"
+        x_valid_range, y_valid_range = (0, 3), (0, 4)
+
+    # NEW: Visualization for the second-layer compensation model
+    elif model_choice == 'q2_q4_comp':
+        if _model_q2_q4_comp is None: _initialize_q2_q4_comp_model()
+        if _model_q2_q4_comp is None: return
+        model_to_plot, filepath = _model_q2_q4_comp, DATA_FILEPATH_Q2_Q4_COMP
+        x_label, y_label = "Q2 Position (radians)", "Residual Q4 Position (radians)"
+        title = "Model Fit for Q2 vs. Residual Q4 (Layer 2 Compensation)"
+        x_valid_range, y_valid_range = (0, 3), (0, 3.0)
 
     else:
-        print(f"Invalid model_choice: '{model_choice}'. Use 'q1_q3' or 'q2_q4'.")
+        print(f"Invalid model_choice: '{model_choice}'. Use 'q1_q3', 'q2_q4', or 'q2_q4_comp'.")
         return
 
     # Load the ORIGINAL raw data to show all points
@@ -189,13 +227,11 @@ def visualize_fit(model_choice='q1_q3'):
     x_data, y_data = data[:, 0], data[:, 1]
 
     plt.figure(figsize=(10, 8))
-    # Plot all original data points
     plt.scatter(x_data, y_data, label='Experimental Data (All Points)', color='black', s=15, alpha=0.5)
 
-    # Clean the data using the combined method to get the correct plotting range
+    # Clean the data to get the correct plotting range
     x_clean, _ = _clean_data(x_data, y_data, x_valid_range=x_valid_range, y_valid_range=y_valid_range)
     
-    # Plot the model's curve, which was trained on cleaned data, only over the valid range
     x_range = np.linspace(x_clean.min(), x_clean.max(), 300)
     plt.plot(x_range, model_to_plot(x_range), label=f'Averaged Model (Degree {POLYNOMIAL_DEGREE})', color='red', linewidth=2)
     
@@ -209,24 +245,15 @@ def visualize_fit(model_choice='q1_q3'):
 # --- Main execution block for direct testing of this script ---
 if __name__ == '__main__':
     print("--- Testing Q1->Q3 Model ---")
-    q1_pos_A, q1_pos_B = 2.0, 1.5
-    delta_A_to_B = q1_pos_B - q1_pos_A
-    predicted_change_1 = get_q3_change(q1_pos_A, delta_A_to_B)
-    print(f"Movement from {q1_pos_A:.2f} to {q1_pos_B:.2f} -> Predicted delta_q3: {predicted_change_1:.6f}")
+    predicted_change_1 = get_q3_change(current_q1=2.0, delta_q1=-0.5)
+    print(f"Movement from 2.0 to 1.5 -> Predicted delta_q3: {predicted_change_1:.6f}")
     
-    delta_B_to_A = q1_pos_A - q1_pos_B
-    predicted_change_2 = get_q3_change(q1_pos_B, delta_B_to_A)
-    print(f"Movement from {q1_pos_B:.2f} to {q1_pos_A:.2f} -> Predicted delta_q3: {predicted_change_2:.6f}")
-
-    print("\n--- Testing Q2->Q4 Model ---")
-    # Note: These test values are placeholders.
-    q2_pos_A, q2_pos_B = 1.0, 0.5
-    predicted_change_q4 = get_q4_change(q2_pos_A, q2_pos_B - q2_pos_A)
-    # The function will print an error if the data file is not found.
+    print("\n--- Testing Q2->Q4 Model (Two-Layer) ---")
+    predicted_change_q4 = get_q4_change(current_q2=1.0, delta_q2=-0.5)
     if _model_q2_q4 is not None:
-         print(f"Movement from {q2_pos_A:.2f} to {q2_pos_B:.2f} -> Predicted delta_q4: {predicted_change_q4:.6f}")
+         print(f"Movement from 1.0 to 0.5 -> Predicted total delta_q4: {predicted_change_q4:.6f}")
 
-    # To see the new, improved plots, uncomment the lines below
-    visualize_fit(model_choice='q1_q3')
-    visualize_fit(model_choice='q2_q4')
-
+    # To see the plots, uncomment the lines below
+    # visualize_fit(model_choice='q1_q3')
+    # visualize_fit(model_choice='q2_q4')
+    visualize_fit(model_choice='q2_q4_comp') # Visualize the fit for the new compensation model
