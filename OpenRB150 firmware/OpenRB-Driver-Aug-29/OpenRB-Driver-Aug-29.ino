@@ -22,6 +22,10 @@
 // - Uses hardware interrupts to immediately stop all motors if a limit is reached.
 // - Performs a pre-movement check to ensure a motor isn't already at its limit.
 //
+// ** INTEGRATED FEATURE: Verbose Mode Toggle **
+// - Send "TOGGLE_VERBOSE" to switch between detailed logging and a fast, quiet mode.
+// - In quiet mode, only critical errors are printed.
+//
 // Author: David Park
 // Modified and refactored by: Gemini
 
@@ -60,6 +64,9 @@ int lowerLimitSwitchPin = 10;
 int m1_tuned_p = 3000;
 int m2_tuned_p = 2000;
 
+// --- Verbose Mode Control ---
+bool verbose_mode = true; // Controls detailed serial output. Toggled by command.
+
 // =============================================================================
 // REFACTORED MOTOR CONFIGURATION (SINGLE SOURCE OF TRUTH)
 // =============================================================================
@@ -77,8 +84,6 @@ struct MotorConfig {
 // - name: The string name for debugging.
 // - limitSwitchPin: The Arduino pin for the limit switch (-1 if none).
 // - commandIndex: The position (0-7) of this motor's delta in the incoming command string.
-
-
 const MotorConfig motor_configs[DXL_ID_CNT] = {
   // {id, name,   limitSwitchPin, commandIndex}
   {1, "Q1",   -1, 0}, // Internal Motor 0 -> Receives delta from command position 0
@@ -158,22 +163,22 @@ void setup() {
 
     // --- Motor Setup ---
     if (dxl.ping(motor.id)) {
-      DEBUG_SERIAL.print("   > Found motor: ");
-      DEBUG_SERIAL.print(motor.name);
-      DEBUG_SERIAL.print(" (ID ");
-      DEBUG_SERIAL.print(motor.id);
-      DEBUG_SERIAL.println(")");
+      if (verbose_mode) {
+        DEBUG_SERIAL.print("   > Found motor: ");
+        DEBUG_SERIAL.print(motor.name);
+        DEBUG_SERIAL.print(" (ID ");
+        DEBUG_SERIAL.print(motor.id);
+        DEBUG_SERIAL.println(")");
+      }
       dxl.torqueOff(motor.id);
       dxl.setOperatingMode(motor.id, OP_EXTENDED_POSITION);
 
       if (motor.id == 1) {
-        // Replace 1250 with the optimal value you found for motor 1
         dxl.writeControlTableItem(POSITION_P_GAIN, motor.id, m1_tuned_p); 
-        DEBUG_SERIAL.print("      -> Set custom P-Gain: 1250");
+        if (verbose_mode) DEBUG_SERIAL.print("         -> Set custom P-Gain: 1250");
       } else if (motor.id == 2) {
-        // Replace 1200 with the optimal value you found for motor 2
         dxl.writeControlTableItem(POSITION_P_GAIN, motor.id, m2_tuned_p); 
-        DEBUG_SERIAL.print("      -> Set custom P-Gain: 1200");
+        if (verbose_mode) DEBUG_SERIAL.print("         -> Set custom P-Gain: 1200");
       }
 
     } else {
@@ -185,10 +190,12 @@ void setup() {
     if (motor.limitSwitchPin != -1) {
       pinMode(motor.limitSwitchPin, INPUT_PULLUP);
       attachInterrupt(digitalPinToInterrupt(motor.limitSwitchPin), onSwitchChange, CHANGE);
-      DEBUG_SERIAL.print("     - Interrupt attached to pin D");
-      DEBUG_SERIAL.print(motor.limitSwitchPin);
-      DEBUG_SERIAL.print(" for motor ");
-      DEBUG_SERIAL.println(motor.name);
+      if (verbose_mode) {
+        DEBUG_SERIAL.print("     - Interrupt attached to pin D");
+        DEBUG_SERIAL.print(motor.limitSwitchPin);
+        DEBUG_SERIAL.print(" for motor ");
+        DEBUG_SERIAL.println(motor.name);
+      }
     }
   }
 
@@ -237,9 +244,13 @@ void loop() {
 // EMERGENCY STOP
 // =============================================================================
 void emergencyStop() {
-  DEBUG_SERIAL.println("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-  DEBUG_SERIAL.println("!!! EMERGENCY STOP: Limit switch interrupt triggered!");
-  DEBUG_SERIAL.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+  if (verbose_mode) {
+    DEBUG_SERIAL.println("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    DEBUG_SERIAL.println("!!! EMERGENCY STOP: Limit switch interrupt triggered!");
+    DEBUG_SERIAL.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+  } else {
+    DEBUG_SERIAL.println("\n!!! EMERGENCY STOP !!!");
+  }
   
   bool found_switch = false;
   dxl.torqueOff(BROADCAST_ID);
@@ -267,7 +278,9 @@ void emergencyStop() {
 
   limitSwitchHit = false;
   dxl.torqueOn(BROADCAST_ID);
-  DEBUG_SERIAL.println("!!! System reset. Torque re-enabled. Ready for new command.\n");
+  if (verbose_mode) {
+    DEBUG_SERIAL.println("!!! System reset. Torque re-enabled. Ready for new command.\n");
+  }
 }
 
 void handleSerialCommands() {
@@ -281,13 +294,18 @@ void handleSerialCommands() {
       else if (incomingCommand.startsWith("FIND_LIMITS")){
         findLimits();
       }
-      else  if(incomingCommand.startsWith("UPDATE_LIMITS [")) {
+      else if(incomingCommand.startsWith("UPDATE_LIMITS [")) {
         int endIndex = incomingCommand.indexOf(']');
         if (endIndex == -1) {
           Serial.println("Error: Malformed command, no closing ']' found.");
           return;
         }
         updateLimits(incomingCommand, endIndex);
+      }
+      else if (incomingCommand.startsWith("TOGGLE_VERBOSE")) {
+        verbose_mode = !verbose_mode;
+        DEBUG_SERIAL.print("Verbose mode is now ");
+        DEBUG_SERIAL.println(verbose_mode ? "ON" : "OFF");
       }
       incomingCommand = "";
     } else {
@@ -306,11 +324,13 @@ bool isMoveBlockedBySwitch(long deltas[]) {
     // Check only motors that are supposed to move AND have a switch
     if (deltas[i] != 0 && motor.limitSwitchPin != -1) {
       if (digitalRead(motor.limitSwitchPin) == HIGH) {
-        DEBUG_SERIAL.print("\n   > PRE-MOVE CHECK FAILED: Cannot move motor ");
-        DEBUG_SERIAL.print(motor.name);
-        DEBUG_SERIAL.print(" because its limit switch on pin D");
-        DEBUG_SERIAL.print(motor.limitSwitchPin);
-        DEBUG_SERIAL.println(" is already pressed.");
+        if (verbose_mode) {
+          DEBUG_SERIAL.print("\n   > PRE-MOVE CHECK FAILED: Cannot move motor ");
+          DEBUG_SERIAL.print(motor.name);
+          DEBUG_SERIAL.print(" because its limit switch on pin D");
+          DEBUG_SERIAL.print(motor.limitSwitchPin);
+          DEBUG_SERIAL.println(" is already pressed.");
+        }
         return true; // Move is blocked
       }
     }
@@ -337,15 +357,17 @@ bool isMoveBlockedByLimit(long deltas[]) {
       // Block if moving towards the minimum AND the goal is less than the min,
       // OR if moving towards the maximum AND the goal is greater than the max.
       if ((deltas[i] < 0 && newGoalPosition < theta1_min) || (deltas[i] > 0 && newGoalPosition > theta1_max)) {
-        DEBUG_SERIAL.print("\n   > PRE-MOVE CHECK FAILED: Cannot move motor ");
-        DEBUG_SERIAL.print(motor.name);
-        DEBUG_SERIAL.print(". Goal (");
-        DEBUG_SERIAL.print(newGoalPosition);
-        DEBUG_SERIAL.print(") exceeds limits [");
-        DEBUG_SERIAL.print(theta1_min);
-        DEBUG_SERIAL.print(", ");
-        DEBUG_SERIAL.print(theta1_max);
-        DEBUG_SERIAL.println("].");
+        if (verbose_mode) {
+          DEBUG_SERIAL.print("\n   > PRE-MOVE CHECK FAILED: Cannot move motor ");
+          DEBUG_SERIAL.print(motor.name);
+          DEBUG_SERIAL.print(". Goal (");
+          DEBUG_SERIAL.print(newGoalPosition);
+          DEBUG_SERIAL.print(") exceeds limits [");
+          DEBUG_SERIAL.print(theta1_min);
+          DEBUG_SERIAL.print(", ");
+          DEBUG_SERIAL.print(theta1_max);
+          DEBUG_SERIAL.println("].");
+        }
         return true; // Move is blocked
       }
     }
@@ -354,15 +376,17 @@ bool isMoveBlockedByLimit(long deltas[]) {
     else if (motor.id == 2) {
       // Apply the same logic as above for motor Q2 and its specific limits.
       if ((deltas[i] < 0 && newGoalPosition < theta2_min) || (deltas[i] > 0 && newGoalPosition > theta2_max)) {
-        DEBUG_SERIAL.print("\n   > PRE-MOVE CHECK FAILED: Cannot move motor ");
-        DEBUG_SERIAL.print(motor.name);
-        DEBUG_SERIAL.print(". Goal (");
-        DEBUG_SERIAL.print(newGoalPosition);
-        DEBUG_SERIAL.print(") exceeds limits [");
-        DEBUG_SERIAL.print(theta2_min);
-        DEBUG_SERIAL.print(", ");
-        DEBUG_SERIAL.print(theta2_max);
-        DEBUG_SERIAL.println("].");
+        if (verbose_mode) {
+          DEBUG_SERIAL.print("\n   > PRE-MOVE CHECK FAILED: Cannot move motor ");
+          DEBUG_SERIAL.print(motor.name);
+          DEBUG_SERIAL.print(". Goal (");
+          DEBUG_SERIAL.print(newGoalPosition);
+          DEBUG_SERIAL.print(") exceeds limits [");
+          DEBUG_SERIAL.print(theta2_min);
+          DEBUG_SERIAL.print(", ");
+          DEBUG_SERIAL.print(theta2_max);
+          DEBUG_SERIAL.println("].");
+        }
         return true; // Move is blocked
       }
     }
@@ -377,27 +401,26 @@ bool isMoveBlockedByLimit(long deltas[]) {
 // COMMAND PARSING AND EXECUTION
 // =============================================================================
 void parseAndExecuteMoveCommand(String cmd) {
-  DEBUG_SERIAL.println("\n=======================================================");
-  DEBUG_SERIAL.print("Received Command: ");
-  DEBUG_SERIAL.println(cmd);
-
-
+  if (verbose_mode) {
+    DEBUG_SERIAL.println("\n=======================================================");
+    DEBUG_SERIAL.print("Received Command: ");
+    DEBUG_SERIAL.println(cmd);
+  }
 
   if(cmd.startsWith("FIND LIMITS")){
     findLimits();
   }
-
-  else{
+  else {
     // 1. Get current positions
-    DEBUG_SERIAL.println("Step 1: Reading current motor positions...");
+    if (verbose_mode) DEBUG_SERIAL.println("Step 1: Reading current motor positions...");
     if(dxl.syncRead(&sr_infos) != DXL_ID_CNT) {
       DEBUG_SERIAL.println("   > ERROR: Failed to read all motors. Aborting.");
       return;
     }
-    DEBUG_SERIAL.println("   > Success. All motors responded.");
+    if (verbose_mode) DEBUG_SERIAL.println("   > Success. All motors responded.");
 
     // 2. Parse delta values
-    DEBUG_SERIAL.println("Step 2: Parsing movement deltas...");
+    if (verbose_mode) DEBUG_SERIAL.println("Step 2: Parsing movement deltas...");
     long parsed_deltas[DELTA_COUNT] = {0};
     String valueString = cmd.substring(strlen(CMD_HEADER));
     
@@ -420,7 +443,7 @@ void parseAndExecuteMoveCommand(String cmd) {
     }
 
     // 3. Map parsed deltas to final deltas using the config array
-    DEBUG_SERIAL.println("Step 3: Mapping deltas to motors...");
+    if (verbose_mode) DEBUG_SERIAL.println("Step 3: Mapping deltas to motors...");
     long final_deltas[DXL_ID_CNT] = {0};
     for (int i = 0; i < DXL_ID_CNT; i++) {
       // The i-th motor in our internal processing order gets its delta
@@ -429,65 +452,45 @@ void parseAndExecuteMoveCommand(String cmd) {
     }
 
     // 4. Pre-move safety check
-    DEBUG_SERIAL.println("Step 4: Performing pre-move safety check...");
+    if (verbose_mode) DEBUG_SERIAL.println("Step 4: Performing pre-move safety check...");
     if (isMoveBlockedBySwitch(final_deltas)) {
-      DEBUG_SERIAL.println("   > Aborting move command due to active limit switch.");
-      DEBUG_SERIAL.println("=======================================================\n");
+      if (verbose_mode) {
+        DEBUG_SERIAL.println("   > Aborting move command due to active limit switch.");
+        DEBUG_SERIAL.println("=======================================================\n");
+      }
       return;
     }
     if (isMoveBlockedByLimit(final_deltas)){
-      DEBUG_SERIAL.println("   > Aborting move command due to position limits.");
-      DEBUG_SERIAL.println("=======================================================\n");
-    return;
-
+      if (verbose_mode) {
+        DEBUG_SERIAL.println("   > Aborting move command due to position limits.");
+        DEBUG_SERIAL.println("=======================================================\n");
+      }
+      return;
     }
+    if (verbose_mode) DEBUG_SERIAL.println("   > Success. Path is clear.");
 
-
-    DEBUG_SERIAL.println("   > Success. Path is clear.");
-
-    // 5. Calculate final goals and print in command order
-    DEBUG_SERIAL.println("Step 5: Finalizing goal positions...");
+    // 5. Calculate final goals
+    if (verbose_mode) DEBUG_SERIAL.println("Step 5: Finalizing goal positions...");
     for(int i=0; i<DXL_ID_CNT; i++){
       sw_data[i].goal_position = sr_data[i].present_position + final_deltas[i];
     }
-    
-    // To print in the original command order, create an inverse mapping
-    int command_to_motor_idx[DXL_ID_CNT];
-    for (int i=0; i < DXL_ID_CNT; i++) {
-      command_to_motor_idx[motor_configs[i].commandIndex] = i;
-    }
-
-    /*for(int i = 0; i < DXL_ID_CNT; i++) {
-        int motor_idx = command_to_motor_idx[i];
-        const auto& motor = motor_configs[motor_idx];
-        DEBUG_SERIAL.print("   > ");
-        DEBUG_SERIAL.print(motor.name);
-        DEBUG_SERIAL.print(" (ID ");
-        DEBUG_SERIAL.print(motor.id);
-        DEBUG_SERIAL.print("): Moving by ");
-        DEBUG_SERIAL.print(final_deltas[motor_idx]);
-        DEBUG_SERIAL.print(" | Current: ");
-        DEBUG_SERIAL.print(sr_data[motor_idx].present_position);
-        DEBUG_SERIAL.print(" -> New Goal: ");
-        DEBUG_SERIAL.println(sw_data[motor_idx].goal_position);
-    }*/
 
     // 6. Execute move
-    DEBUG_SERIAL.println("Step 6: Executing move with SyncWrite...");
+    if (verbose_mode) DEBUG_SERIAL.println("Step 6: Executing move with SyncWrite...");
     sw_infos.is_info_changed = true;
     if(dxl.syncWrite(&sw_infos)) {
-      DEBUG_SERIAL.println("   > [SyncWrite] Success. Command sent.");
+      if (verbose_mode) DEBUG_SERIAL.println("   > [SyncWrite] Success. Command sent.");
     } else {
       DEBUG_SERIAL.print("   > [SyncWrite] Fail, Lib error code: ");
       DEBUG_SERIAL.println(dxl.getLastLibErrCode());
     }
-    DEBUG_SERIAL.println("=======================================================\n");
+    if (verbose_mode) DEBUG_SERIAL.println("=======================================================\n");
   }
 }
 
 
 //@brief Updates the position limits for a specific motor in EEPROM and RAM.
- //@param motor_ID The ID of the motor to update (e.g., 1 or 2).
+//@param motor_ID The ID of the motor to update (e.g., 1 or 2).
 //@param newMin The new minimum position limit.
 //@param newMax The new maximum position limit.
 
