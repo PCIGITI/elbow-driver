@@ -47,6 +47,10 @@ int lowerLimitSwitchPin = 10;
 int m1_tuned_p = 3000;
 int m2_tuned_p = 2000;
 
+const uint32_t FAST_PROFILE_VELOCITY = 300; // Adjust as needed for the desired "fast" speed.
+const uint32_t SLOW_PROFILE_VELOCITY = 5;   // Approx. 300 / 56. Can be fine-tuned.
+
+
 // --- Verbose Mode Control ---
 bool verbose_mode = true; // Controls detailed serial output. Toggled by command.
 
@@ -155,6 +159,21 @@ void setup() {
       }
       dxl.torqueOff(motor.id);
       dxl.setOperatingMode(motor.id, OP_EXTENDED_POSITION);
+
+           // Set the Profile Velocity to control motor speed.
+      if (motor.id == 1 || motor.id == 2) {
+        dxl.writeControlTableItem(PROFILE_VELOCITY, motor.id, SLOW_PROFILE_VELOCITY);
+        if (verbose_mode) {
+           DEBUG_SERIAL.print("       -> Set SLOW Profile Velocity: ");
+           DEBUG_SERIAL.println(SLOW_PROFILE_VELOCITY);
+        }
+      } else {
+        dxl.writeControlTableItem(PROFILE_VELOCITY, motor.id, FAST_PROFILE_VELOCITY);
+        if (verbose_mode) {
+           DEBUG_SERIAL.print("       -> Set FAST Profile Velocity: ");
+           DEBUG_SERIAL.println(FAST_PROFILE_VELOCITY);
+        }
+      }
 
       if (motor.id == 1) {
         dxl.writeControlTableItem(POSITION_P_GAIN, motor.id, m1_tuned_p); 
