@@ -1,16 +1,3 @@
-// Copyright 2021 ROBOTIS CO., LTD.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
 
 // This sketch provides an integrated control system for 8 DYNAMIXEL motors.
 // It listens for a specific hardware serial command, parses relative movement
@@ -18,16 +5,12 @@
 // and executes the movement simultaneously using SyncRead and SyncWrite.
 // It now uses Extended Position Control Mode for unlimited rotational travel.
 //
-// ** INTEGRATED FEATURE: Limit Switch Interrupts **
 // - Uses hardware interrupts to immediately stop all motors if a limit is reached.
 // - Performs a pre-movement check to ensure a motor isn't already at its limit.
 //
-// ** INTEGRATED FEATURE: Verbose Mode Toggle **
 // - Send "TOGGLE_VERBOSE" to switch between detailed logging and a fast, quiet mode.
 // - In quiet mode, only critical errors are printed.
 //
-// Author: David Park
-// Modified and refactored by: Gemini
 
 #include <Dynamixel2Arduino.h>
 
