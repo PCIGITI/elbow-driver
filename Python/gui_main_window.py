@@ -14,6 +14,8 @@ import q1_pl, q2_pl, q3_pl, q4_pl # Joint processors for step calculations
 import queue
 import threading
 try:
+    import sys
+    sys.path.append("/opt/ros/noetic/lib/python3/dist-packages")
     import rospy
     # NEW: Import JointState message type
     from sensor_msgs.msg import JointState
@@ -48,11 +50,11 @@ class ROSSubscriberThread(threading.Thread):
                 return math.degrees(rad_val) + 90.0
 
             target_positions_deg = {
-                "Q1": convert_rad_to_deg(joint_map["elbow_pitch"]),
+                "Q1": -convert_rad_to_deg(joint_map["elbow_pitch"]),
                 "Q2": convert_rad_to_deg(joint_map["elbow_yaw"]),
                 "Q3": convert_rad_to_deg(joint_map["wrist_pitch"]),
-                "Q4L": convert_rad_to_deg(joint_map["jaw_1"]),
-                "Q4R": -math.degrees(joint_map["jaw_1"]) + 90.0
+                "Q4L": -convert_rad_to_deg(joint_map["jaw_1"]),
+                "Q4R": math.degrees(joint_map["jaw_1"]) + 90.0
             }
             self._data_queue.put(target_positions_deg)
         except Exception as e:
@@ -66,7 +68,7 @@ class ROSSubscriberThread(threading.Thread):
             
             # The loop is simpler now, just waiting for the stop signal.
             while not self._stop_event.is_set() and not rospy.is_shutdown():
-                self._stop_event.wait(0.1)
+                self._stop_event.wait(0.05)
 
         except rospy.ROSInterruptException:
             self._log_callback("ROS Thread: Shutdown signal received.")
@@ -117,7 +119,8 @@ class ElbowSimulatorGUI:
         
         # --- ROS Variables ---
         self.ros_mode_var = tk.BooleanVar(value=False)
-        self.ros_topic_var = tk.StringVar(value="/joint_states") # Default topic
+        #self.ros_topic_var = tk.StringVar(value="/joint_states") # Default topic
+        self.ros_topic_var = tk.StringVar(value="/cccleft11/joint_states") #teng4 modified.# Default topic
         self.ros_status_var = tk.StringVar(value="Status: Inactive")
         self.ros_update_freq_ms = tk.IntVar(value=100) # NEW: Update frequency in ms
         self.ros_queue = queue.Queue()
@@ -134,18 +137,8 @@ class ElbowSimulatorGUI:
         self.theta2_min_display_var = tk.StringVar(value="N/A")
         self.theta2_max_display_var = tk.StringVar(value="N/A")
 
-        # --- Sign Convention Variables ---
-        self.Q1_invert = 1
-        self.Q2_invert = 1
-        self.Q3_invert = 1
-        self.Q4L_invert = 1
-        self.Q4R_invert = 1
-        self.q1_dir_var = tk.StringVar(value="South")
-        self.q2_dir_var = tk.StringVar(value="West")
-        self.q3_dir_var = tk.StringVar(value="South")
-        self.q4l_dir_var = tk.StringVar(value="West")
-        self.q4r_dir_var = tk.StringVar(value="East")
-        self.invert_buttons = {} # NEW: Dictionary to hold references to invert buttons
+        # --- Tension Motor Variables ---
+        self.tension_step_size_var = tk.StringVar(value="10")
 
         #holds the latest direction values for each motor pair, 0 for true neutral, 1 for ccw, -1 for cw
         self.latest_dir = {
@@ -186,20 +179,6 @@ class ElbowSimulatorGUI:
                 self.theta1_max_display_var.set(self.theta1_max_input_var.get())
                 self.theta2_min_display_var.set(self.theta2_min_input_var.get())
                 self.theta2_max_display_var.set(self.theta2_max_input_var.get())
-
-                # Load invert values
-                self.Q1_invert = 1 if settings.get("q1_invert", "0") == "0" else -1
-                self.Q2_invert = 1 if settings.get("q2_invert", "0") == "0" else -1
-                self.Q3_invert = 1 if settings.get("q3_invert", "0") == "0" else -1
-                self.Q4L_invert = 1 if settings.get("q4L_invert", "0") == "0" else -1
-                self.Q4R_invert = 1 if settings.get("q4R_invert", "0") == "0" else -1
-
-                # Update direction variables based on loaded invert values
-                self.q1_dir_var.set("North" if self.Q1_invert == -1 else "South")
-                self.q2_dir_var.set("East" if self.Q2_invert == -1 else "West")
-                self.q3_dir_var.set("North" if self.Q3_invert == -1 else "South")
-                self.q4l_dir_var.set("East" if self.Q4L_invert == -1 else "West")
-                self.q4r_dir_var.set("West" if self.Q4R_invert == -1 else "East")
                 
                 self.log_message("Loaded settings from gui_settings.json.", level="info")
                 self.root.update_idletasks()
@@ -216,11 +195,6 @@ class ElbowSimulatorGUI:
             "theta1_max": self.theta1_max_input_var.get(),
             "theta2_min": self.theta2_min_input_var.get(),
             "theta2_max": self.theta2_max_input_var.get(),
-            "q1_invert": "1" if self.Q1_invert == -1 else "0",
-            "q2_invert": "1" if self.Q2_invert == -1 else "0",
-            "q3_invert": "1" if self.Q3_invert == -1 else "0",
-            "q4L_invert": "1" if self.Q4L_invert == -1 else "0",
-            "q4R_invert": "1" if self.Q4R_invert == -1 else "0"
         }
         try:
             settings_path = os.path.join(os.path.dirname(__file__), "gui_settings.json")
@@ -233,17 +207,17 @@ class ElbowSimulatorGUI:
     def _setup_cyberpunk_style(self):
         """Configures the ttk styles for a cyberpunk hacker theme."""
         # --- Color Palette & Fonts ---
-        self.BG_COLOR = "#0D0208"       # Near-black purple
-        self.FG_COLOR = "#00FF9B"       # Bright neon mint/cyan
-        self.TEXT_COLOR = "#EAEAEA"     # Off-white
-        self.ALT_BG_COLOR = "#1a1a1a"   # Dark gray for entry fields/buttons
-        self.BORDER_COLOR = "#FF00FF"   # Magenta for highlights
+        self.BG_COLOR = "#0D0208"      # Near-black purple
+        self.FG_COLOR = "#00FF9B"      # Bright neon mint/cyan
+        self.TEXT_COLOR = "#EAEAEA"    # Off-white
+        self.ALT_BG_COLOR = "#1a1a1a"  # Dark gray for entry fields/buttons
+        self.BORDER_COLOR = "#FF00FF"  # Magenta for highlights
         
-        self.INFO_COLOR = "#00FF9B"     # Neon Mint
-        self.SENT_COLOR = "#00BFFF"     # Deep Sky Blue
+        self.INFO_COLOR = "#00FF9B"    # Neon Mint
+        self.SENT_COLOR = "#00BFFF"    # Deep Sky Blue
         self.RECEIVED_COLOR = "#F0E68C" # Khaki/Yellowish
-        self.ERROR_COLOR = "#FF4136"    # Red
-        self.WARNING_COLOR = "#FF851B"  # Orange
+        self.ERROR_COLOR = "#FF4136"   # Red
+        self.WARNING_COLOR = "#FF851B" # Orange
         self.TIMESTAMP_COLOR = "#888888" # Gray
 
         self.FONT_HACKER = ("Consolas", 11)
@@ -287,6 +261,19 @@ class ElbowSimulatorGUI:
                   background=[('active', self.FG_COLOR), ('pressed', self.FG_COLOR)],
                   foreground=[('active', self.BG_COLOR), ('pressed', self.BG_COLOR)])
         
+        # --- Styles for ROS confirmation popup ---
+        style.configure('Yes.TButton', background=self.BORDER_COLOR, foreground=self.TEXT_COLOR)
+        style.map('Yes.TButton',
+                  background=[('active', self.FG_COLOR), ('pressed', self.FG_COLOR)],
+                  foreground=[('active', self.BG_COLOR), ('pressed', self.BG_COLOR)])
+        style.configure('No.TButton', background=self.ALT_BG_COLOR, foreground=self.TEXT_COLOR)
+        style.map('No.TButton',
+                  background=[('active', self.FG_COLOR), ('pressed', self.FG_COLOR)],
+                  foreground=[('active', self.BG_COLOR), ('pressed', self.BG_COLOR)])
+
+        # --- Style for Help buttons ---
+        style.configure('Help.TButton', padding=2, font=("Consolas", 9, "bold"))
+        
         # --- NEW: Style for the "Reset" button state ---
         style.configure('Reset.TButton',
                         background=self.BORDER_COLOR,
@@ -325,7 +312,7 @@ class ElbowSimulatorGUI:
                 borderwidth=0,
                 arrowcolor=self.FG_COLOR)
         style.map('Vertical.TScrollbar',
-                background=[('active', self.FG_COLOR)])
+                  background=[('active', self.FG_COLOR)])
 
     def _setup_main_layout(self): #
         self.canvas = tk.Canvas(self.root, borderwidth=0, background=self.BG_COLOR, highlightthickness=0)
@@ -358,8 +345,13 @@ class ElbowSimulatorGUI:
         top_frame.columnconfigure(1, weight=1)
 
         # Column 0: Connection
-        conn_frame = ttk.LabelFrame(top_frame, text="<CONNECTION_LINK>", padding="10")
+        conn_frame = ttk.LabelFrame(top_frame, padding="10")
+        conn_title_widget = ttk.Frame(conn_frame)
+        ttk.Label(conn_title_widget, text="<CONNECTION_LINK>", style='TLabelframe.Label').pack(side="left", anchor='w')
+        self._create_help_button(conn_title_widget, "connection_link_help.txt").pack(side="left", padx=5, anchor='w')
+        conn_frame.configure(labelwidget=conn_title_widget)
         conn_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
+        
         ttk.Label(conn_frame, text="PORT:").grid(row=0, column=0, padx=5, pady=5)
         self.port_entry = ttk.Entry(conn_frame, width=12, font=self.FONT_HACKER)
         self.port_entry.insert(0, config.DEFAULT_SERIAL_PORT)
@@ -371,8 +363,13 @@ class ElbowSimulatorGUI:
         conn_frame.columnconfigure(3, weight=1)
 
         # Column 1: System Commands
-        sys_cmd_frame = ttk.LabelFrame(top_frame, text="<SYSTEM_OPS>", padding="10")
+        sys_cmd_frame = ttk.LabelFrame(top_frame, padding="10")
+        sys_cmd_title_widget = ttk.Frame(sys_cmd_frame)
+        ttk.Label(sys_cmd_title_widget, text="<SYSTEM_OPS>", style='TLabelframe.Label').pack(side="left", anchor='w')
+        self._create_help_button(sys_cmd_title_widget, "system_ops_help.txt").pack(side="left", padx=5, anchor='w')
+        sys_cmd_frame.configure(labelwidget=sys_cmd_title_widget)
         sys_cmd_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
+        
         self.verbose_button = ttk.Button(sys_cmd_frame, text="VERBOSITY: OFF", command=self._toggle_arduino_verbose_action)
         self.verbose_button.grid(row=0, column=0, padx=5, pady=5)
         self.wrist_yaw_mode_button = ttk.Checkbutton(
@@ -385,15 +382,15 @@ class ElbowSimulatorGUI:
         self.wrist_yaw_mode_button.grid(row=0, column=1, padx=15, pady=5)
         sys_cmd_frame.columnconfigure(1, weight=1)
 
-        # Row 1: Holds both Manual Control and Sign Conventions
+        # Row 1: Holds both Manual Control and Tension Motors
         controls_container_frame = ttk.Frame(self.main_content_frame)
         controls_container_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
         controls_container_frame.columnconfigure(0, weight=1) # Manual controls
-        controls_container_frame.columnconfigure(1, weight=1) # Sign conventions
+        controls_container_frame.columnconfigure(1, weight=1) # Tension motors
 
         # Create the two frames inside the container
         self._create_joint_control_widgets(controls_container_frame)
-        self._create_sign_conventions_widgets(controls_container_frame)
+        self._create_tension_motors_widgets(controls_container_frame)
 
         # Row 2: ROS Control Frame
         self._create_ros_control_widgets(self.main_content_frame)
@@ -406,7 +403,11 @@ class ElbowSimulatorGUI:
     
     def _create_ros_control_widgets(self, parent_frame):
         """Creates the widgets for the ROS control feature."""
-        ros_frame = ttk.LabelFrame(parent_frame, text="<ROS_INTERFACE>", padding="10")
+        ros_frame = ttk.LabelFrame(parent_frame, padding="10")
+        ros_title_widget = ttk.Frame(ros_frame)
+        ttk.Label(ros_title_widget, text="<ROS_INTERFACE>", style='TLabelframe.Label').pack(side="left", anchor='w')
+        self._create_help_button(ros_title_widget, "ros_interface_help.txt").pack(side="left", padx=5, anchor='w')
+        ros_frame.configure(labelwidget=ros_title_widget)
         ros_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
 
         self.ros_mode_toggle = ttk.Checkbutton(
@@ -443,7 +444,11 @@ class ElbowSimulatorGUI:
 
     def _create_joint_limits_widgets(self, parent_frame):
         """Creates the widgets for setting and finding elbow joint limits."""
-        limits_frame = ttk.LabelFrame(parent_frame, text="<ELBOW_JOINT_LIMITS>", padding="10")
+        limits_frame = ttk.LabelFrame(parent_frame, padding="10")
+        limits_title_widget = ttk.Frame(limits_frame)
+        ttk.Label(limits_title_widget, text="<ELBOW_JOINT_LIMITS>", style='TLabelframe.Label').pack(side="left", anchor='w')
+        self._create_help_button(limits_title_widget, "elbow_joint_limits_help.txt").pack(side="left", padx=5, anchor='w')
+        limits_frame.configure(labelwidget=limits_title_widget)
         
         # Use a sub-frame for better alignment
         fields_frame = ttk.Frame(limits_frame)
@@ -496,7 +501,11 @@ class ElbowSimulatorGUI:
 
     def _create_joint_control_widgets(self, parent_frame):
         """Creates the new joint control UI as requested."""
-        joint_super_frame = ttk.LabelFrame(parent_frame, text="<MANUAL_JOINT_CONTROL>", padding="10")
+        joint_super_frame = ttk.LabelFrame(parent_frame, padding="10")
+        joint_title_widget = ttk.Frame(joint_super_frame)
+        ttk.Label(joint_title_widget, text="<MANUAL_JOINT_CONTROL>", style='TLabelframe.Label').pack(side="left", anchor='w')
+        self._create_help_button(joint_title_widget, "manual_joint_control_help.txt").pack(side="left", padx=5, anchor='w')
+        joint_super_frame.configure(labelwidget=joint_title_widget)
         joint_super_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
         joint_super_frame.columnconfigure(0, weight=1)
 
@@ -518,7 +527,7 @@ class ElbowSimulatorGUI:
 
         self.individual_motor_toggle = ttk.Checkbutton(
             top_controls_frame,
-            text="INDIVIDUAL_MOTOR_CTRL",
+            text="TENSION_MODE",
             variable=self.individual_motor_mode_var,
             style="Toolbutton",
             command=self._on_individual_motor_toggle
@@ -556,87 +565,79 @@ class ElbowSimulatorGUI:
         ttk.Label(q4_frame, text="Q4R", anchor="center").grid(row=0, column=5, padx=(2, 8))
         ttk.Button(q4_frame, text="[+]", width=4, command=lambda: self._joint_button_action("Q4R", 1)).grid(row=0, column=6)
 
-    def _create_sign_conventions_widgets(self, parent_frame):
-        """Creates the sign convention display and control widgets."""
-        sign_frame = ttk.LabelFrame(parent_frame, text="<SIGN_CONVENTIONS>", padding="10")
-        sign_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
+    def _create_tension_motors_widgets(self, parent_frame):
+        """Creates the UI for individually tensioning motors."""
+        tension_frame = ttk.LabelFrame(parent_frame, padding="10")
+        tension_title_widget = ttk.Frame(tension_frame)
+        ttk.Label(tension_title_widget, text="<TENSION_MOTORS>", style='TLabelframe.Label').pack(side="left", anchor='w')
+        self._create_help_button(tension_title_widget, "tension_motors_help.txt").pack(side="left", padx=5, anchor='w')
+        tension_frame.configure(labelwidget=tension_title_widget)
+        tension_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
 
-        # --- Table Headers ---
-        ttk.Label(sign_frame, text="Joint Num", font=self.FONT_HACKER_BOLD).grid(row=0, column=0, padx=5, pady=(0, 5))
-        ttk.Label(sign_frame, text="Positive Dir", font=self.FONT_HACKER_BOLD).grid(row=0, column=1, padx=5, pady=(0, 5))
+        # --- Top controls ---
+        top_frame = ttk.Frame(tension_frame)
+        top_frame.pack(pady=5, padx=5, fill=tk.X)
+        
+        ttk.Label(top_frame, text="Step Size:").pack(side=tk.LEFT)
+        step_entry = ttk.Entry(top_frame, textvariable=self.tension_step_size_var, width=8, font=self.FONT_HACKER)
+        step_entry.pack(side=tk.LEFT, padx=5)
 
-        # --- Table Data ---
-        joint_data = [
-            ("Q1", self.q1_dir_var),
-            ("Q2", self.q2_dir_var),
-            ("Q3", self.q3_dir_var),
-            ("Q4L", self.q4l_dir_var),
-            ("Q4R", self.q4r_dir_var),
-        ]
+        # --- Description ---
+        desc_label = ttk.Label(tension_frame, text="D to release tension, T to increase tension", anchor="center")
+        desc_label.pack(pady=(5, 10), fill=tk.X)
 
-        for i, (joint_id, dir_var) in enumerate(joint_data, start=1):
-            ttk.Label(sign_frame, text=joint_id, anchor="center").grid(row=i, column=0, pady=4)
-            ttk.Label(sign_frame, textvariable=dir_var, width=6, anchor="center", foreground=self.FG_COLOR).grid(row=i, column=1, pady=4)
-            
-            # Create and store the button
-            invert_button = ttk.Button(
-                sign_frame,
-                text="[Invert]",
-                width=8,
-                command=lambda j=joint_id: self._invert_direction(j)
+        # --- Motor Buttons ---
+        buttons_frame = ttk.Frame(tension_frame)
+        buttons_frame.pack(pady=5)
+
+        for motor_num in range(3, 9): # Motors 3 through 8
+            # 'D' Button (Release Tension, positive steps)
+            d_button = ttk.Button(
+                buttons_frame, text="D", width=3,
+                command=lambda m=motor_num: self._tension_button_action(m, 1)
             )
-            invert_button.grid(row=i, column=2, padx=5, pady=4)
-            self.invert_buttons[joint_id] = invert_button
+            d_button.grid(row=motor_num, column=0, padx=5, pady=2)
 
-    def _invert_direction(self, joint_id):
-        """Handles the logic for inverting a joint's positive direction."""
-        inversion_map = {
-            "Q1": (self.q1_dir_var, ("South", "North")),
-            "Q2": (self.q2_dir_var, ("West", "East")),
-            "Q3": (self.q3_dir_var, ("South", "North")),
-            "Q4L": (self.q4l_dir_var, ("West", "East")),
-            "Q4R": (self.q4r_dir_var, ("East", "West")),
-        }
-        
-        if joint_id in inversion_map:
-            dir_var, (dir1, dir2) = inversion_map[joint_id]
-            current_dir = dir_var.get()
-            new_dir = dir2 if current_dir == dir1 else dir1
-            dir_var.set(new_dir)
-            
-            # Update the corresponding invert variable
-            if joint_id == "Q1": self.Q1_invert *= -1
-            elif joint_id == "Q2": self.Q2_invert *= -1
-            elif joint_id == "Q3": self.Q3_invert *= -1
-            elif joint_id == "Q4L": self.Q4L_invert *= -1
-            elif joint_id == "Q4R": self.Q4R_invert *= -1
-            
-            self.log_message(f"Sign convention for {joint_id} inverted to '{new_dir}'.")
-            # Update the button's appearance
-            self._update_invert_button_style(joint_id)
-            # Save the new settings
-            self._save_settings()
-            
-    def _update_invert_button_style(self, joint_id):
-        """Updates the text and style of an invert/reset button based on its state."""
-        invert_var_map = {
-            "Q1": self.Q1_invert,
-            "Q2": self.Q2_invert,
-            "Q3": self.Q3_invert,
-            "Q4L": self.Q4L_invert,
-            "Q4R": self.Q4R_invert,
-        }
-        
-        button = self.invert_buttons.get(joint_id)
-        invert_state = invert_var_map.get(joint_id)
+            # Motor Label
+            label = ttk.Label(buttons_frame, text=f"[{motor_num}]", width=5, anchor="center")
+            label.grid(row=motor_num, column=1, padx=5)
 
-        if not button:
+            # 'T' Button (Increase Tension, negative steps)
+            t_button = ttk.Button(
+                buttons_frame, text="T", width=3,
+                command=lambda m=motor_num: self._tension_button_action(m, -1)
+            )
+            t_button.grid(row=motor_num, column=2, padx=5, pady=2)
+
+    def _tension_button_action(self, motor_number, direction):
+        """Handles sending a step command to a single motor for tensioning."""
+        try:
+            step_size = int(self.tension_step_size_var.get())
+        except ValueError:
+            messagebox.showerror("Input Error", "Tension step size must be an integer.", parent=self.root)
             return
 
-        if invert_state == -1: # Inverted state
-            button.config(text="[RESET]", style="Reset.TButton")
-        else: # Default state
-            button.config(text="[Invert]", style="TButton")
+        # Calculate final steps (direction is 1 for D, -1 for T)
+        actual_steps = step_size * direction
+        
+        # Initialize a list of zeros for all motors
+        motor_steps = [0] * len(MotorIndex)
+
+        # Set the steps for the target motor. Motor numbers are 1-based, list is 0-based.
+        # Motor 3 corresponds to index 2, Motor 8 to index 7.
+        motor_index = motor_number - 1
+        
+        if 0 <= motor_index < len(motor_steps):
+            motor_steps[motor_index] = actual_steps
+        else:
+            self.log_message(f"Invalid motor number {motor_number} for tensioning.", level="error")
+            return
+
+        # Format and send command
+        steps_str = ",".join(map(str, motor_steps))
+        cmd = f"MOVE_ALL_MOTORS:{steps_str}"
+        self.log_message(f"Tension Motor {motor_number}: {actual_steps} steps. Cmd: {cmd}", level="sent")
+        self.serial_handler.send_command(cmd)
 
     def _create_positional_control_frame_widgets(self, parent_frame): #
         positional_super_frame = ttk.LabelFrame(parent_frame, text="<POSITIONAL_CONTROL>", padding="10")
@@ -651,7 +652,11 @@ class ElbowSimulatorGUI:
         limits_frame.grid(row=0, column=0, padx=(0, 5), sticky=(tk.N, tk.S, tk.E, tk.W))
 
         # Create cumulative position display in the right column
-        cumulative_frame = ttk.LabelFrame(positional_super_frame, text="<CUMULATIVE_POSITION>", padding="10")
+        cumulative_frame = ttk.LabelFrame(positional_super_frame, padding="10")
+        cumulative_title_widget = ttk.Frame(cumulative_frame)
+        ttk.Label(cumulative_title_widget, text="<CUMULATIVE_POSITION>", style='TLabelframe.Label').pack(side="left", anchor='w')
+        self._create_help_button(cumulative_title_widget, "cumulative_position_help.txt").pack(side="left", padx=5, anchor='w')
+        cumulative_frame.configure(labelwidget=cumulative_title_widget)
         cumulative_frame.grid(row=0, column=1, padx=(5, 0), sticky=(tk.N, tk.S, tk.E, tk.W))
         
         row_idx_cum = 0
@@ -685,14 +690,14 @@ class ElbowSimulatorGUI:
         
         # Using a standard tk.Text widget for full color control
         self.output_text = tk.Text(output_frame, height=15, width=80,
-                                   background=self.BG_COLOR,
-                                   foreground=self.FG_COLOR,
-                                   insertbackground=self.BORDER_COLOR, # Cursor color
-                                   selectbackground=self.BORDER_COLOR,
-                                   selectforeground=self.TEXT_COLOR,
-                                   borderwidth=0,
-                                   highlightthickness=0,
-                                   font=self.FONT_HACKER)
+                                      background=self.BG_COLOR,
+                                      foreground=self.FG_COLOR,
+                                      insertbackground=self.BORDER_COLOR, # Cursor color
+                                      selectbackground=self.BORDER_COLOR,
+                                      selectforeground=self.TEXT_COLOR,
+                                      borderwidth=0,
+                                      highlightthickness=0,
+                                      font=self.FONT_HACKER)
         self.output_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S)) #
         
         # --- NEW: Configure color tags for the Text widget ---
@@ -709,6 +714,58 @@ class ElbowSimulatorGUI:
         scrollbar = ttk.Scrollbar(output_frame, orient=tk.VERTICAL, command=self.output_text.yview, style='Vertical.TScrollbar')
         scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S)) #
         self.output_text['yscrollcommand'] = scrollbar.set #
+
+    def _create_help_button(self, parent, help_file):
+        """Creates a styled help button."""
+        return ttk.Button(
+            parent,
+            text="[?]",
+            command=lambda: self._show_help_window(help_file),
+            width=3,
+            style="Help.TButton"
+        )
+
+    def _show_help_window(self, help_file):
+        """Creates a Toplevel window to display help text from a file."""
+        try:
+            help_path = os.path.join(os.path.dirname(__file__), "help-docs", help_file)
+            with open(help_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            title = f"Help: {os.path.basename(help_file)}"
+        except FileNotFoundError:
+            content = f"Error: Help file not found!\n\nPlease make sure '{help_file}' exists in the same directory as the application."
+            title = "Help File Not Found"
+        except Exception as e:
+            content = f"An unexpected error occurred while reading the help file:\n\n{e}"
+            title = "Error"
+
+        help_win = tk.Toplevel(self.root)
+        help_win.title(title)
+        help_win.geometry("500x400")
+        help_win.configure(background=self.BG_COLOR)
+
+        main_frame = ttk.Frame(help_win, padding="10")
+        main_frame.pack(expand=True, fill="both")
+
+        text_widget = tk.Text(
+            main_frame,
+            wrap="word",
+            background=self.ALT_BG_COLOR,
+            foreground=self.TEXT_COLOR,
+            font=self.FONT_HACKER,
+            borderwidth=0,
+            highlightthickness=0,
+            padx=5,
+            pady=5
+        )
+        text_widget.insert("1.0", content)
+        text_widget.config(state="disabled")
+
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=text_widget.yview)
+        text_widget.config(yscrollcommand=scrollbar.set)
+
+        scrollbar.pack(side="right", fill="y")
+        text_widget.pack(side="left", expand=True, fill="both")
 
     def log_message(self, message, level="info"):
         """
@@ -789,10 +846,10 @@ class ElbowSimulatorGUI:
 
             # 3. Inform the user with a clear pop-up
             messagebox.showerror("Connection Lost", 
-                                 "Serial connection lost (E-Stop detected).\n"
-                                 "Logs have been saved.\n"
-                                 "Please reconnect the device.", 
-                                 parent=self.root)
+                                  "Serial connection lost (E-Stop detected).\n"
+                                  "Logs have been saved.\n"
+                                  "Please reconnect the device.", 
+                                  parent=self.root)
             
             # 4. Force a disconnect in the handler to clean up internal state
             # This will also trigger the status_callback to update the GUI
@@ -868,11 +925,8 @@ class ElbowSimulatorGUI:
                 messagebox.showerror("ROS Not Found", "The 'rospy' library is not installed. Please install ROS and its Python bindings to use this feature.", parent=self.root)
                 self.ros_mode_var.set(False) # Revert the checkbox
                 return
-            self.ros_topic_entry.config(state=tk.NORMAL)
-            self.ros_subscribe_button.config(state=tk.NORMAL)
-            self.ros_freq_entry.config(state=tk.NORMAL) # Enable freq entry
-            self.ros_status_var.set("Status: Ready")
-            self.log_message("ROS mode enabled.")
+            # Show the custom confirmation dialog
+            self._show_ros_reset_warning()
         else:
             self._stop_ros_subscriber() # Stop any active subscription
             self.ros_topic_entry.config(state=tk.DISABLED)
@@ -880,6 +934,65 @@ class ElbowSimulatorGUI:
             self.ros_freq_entry.config(state=tk.DISABLED) # Disable freq entry
             self.ros_status_var.set("Status: Inactive")
             self.log_message("ROS mode disabled.")
+
+    def _show_ros_reset_warning(self):
+        """Creates a custom Toplevel window to ask about resetting position."""
+        
+        # This flag will track if a choice was made
+        self.ros_warning_choice_made = False
+
+        win = tk.Toplevel(self.root)
+        win.title("Warning")
+        win.configure(background=self.BG_COLOR)
+        win.resizable(False, False)
+
+        # Center the window on the parent
+        self.root.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (win.winfo_reqwidth() // 2)
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (win.winfo_reqheight() // 2)
+        win.geometry(f"+{x}+{y}")
+        
+        main_frame = ttk.Frame(win, padding="20")
+        main_frame.pack(expand=True, fill="both")
+        
+        label = ttk.Label(main_frame, text="Reset Cumulative Position?", font=self.FONT_HACKER_BOLD)
+        label.pack(pady=(0, 20))
+        
+        buttons_frame = ttk.Frame(main_frame)
+        buttons_frame.pack()
+
+        def on_yes():
+            self.ros_warning_choice_made = True
+            self._reset_cumulative_degrees_display_action()
+            self._proceed_with_ros_enable()
+            win.destroy()
+
+        def on_no():
+            self.ros_warning_choice_made = True
+            self._proceed_with_ros_enable()
+            win.destroy()
+
+        def on_close():
+            # If closed without a choice, revert the checkbox
+            if not self.ros_warning_choice_made:
+                self.ros_mode_var.set(False)
+            win.destroy()
+
+        yes_button = ttk.Button(buttons_frame, text="YES", style="Yes.TButton", command=on_yes)
+        yes_button.pack(side="left", padx=10)
+        
+        no_button = ttk.Button(buttons_frame, text="NO", style="No.TButton", command=on_no)
+        no_button.pack(side="left", padx=10)
+
+        win.protocol("WM_DELETE_WINDOW", on_close)
+        
+    def _proceed_with_ros_enable(self):
+        """The actual logic to enable ROS mode after the dialog is handled."""
+        self.ros_topic_entry.config(state=tk.NORMAL)
+        self.ros_subscribe_button.config(state=tk.NORMAL)
+        self.ros_freq_entry.config(state=tk.NORMAL) # Enable freq entry
+        self.ros_status_var.set("Status: Ready")
+        self.log_message("ROS mode enabled.")
 
     def _start_ros_subscriber(self):
         """Initializes ROS node if needed, then starts the subscriber thread."""
@@ -944,10 +1057,10 @@ class ElbowSimulatorGUI:
                     "Q4R": self.cumulative_rj_degrees_var.get(),
                 }
                 joint_degree_deltas = {
-                    "EP": latest_target_positions["Q1"] - current_abs_positions["Q1"],
+                    "EP": latest_target_positions["Q1"] - current_abs_positions["Q1"], #THIS IS FLIPPED FOR SIGN CONVENTION
                     "EY": latest_target_positions["Q2"] - current_abs_positions["Q2"],
                     "WP": latest_target_positions["Q3"] - current_abs_positions["Q3"],
-                    "LJ": latest_target_positions["Q4L"] - current_abs_positions["Q4L"],
+                    "LJ": latest_target_positions["Q4L"] - current_abs_positions["Q4L"], 
                     "RJ": latest_target_positions["Q4R"] - current_abs_positions["Q4R"],
                 }
                 # self.log_message(f"Calculated Deltas: {joint_degree_deltas}")
@@ -1150,3 +1263,4 @@ class ElbowSimulatorGUI:
             rospy.signal_shutdown("GUI is closing")
         self.serial_handler.cleanup()
         self.log_message("Cleanup complete. Goodbye.")
+

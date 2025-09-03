@@ -1,0 +1,22 @@
+<CONNECTION_LINK>
+
+This panel manages the serial link between the GUI and the OpenRB-150.
+
+PORT
+- Enter the serial port name (e.g. COM3 on Windows, /dev/ttyUSB0 on Linux).
+- Default is set in config.
+
+[CONNECT] / [DISCONNECT]
+- Connect: opens the serial port and starts communication.
+- Disconnect: closes the link cleanly.
+
+STATUS
+- Shows current connection state (STANDBY, CONNECTED, etc.).
+- Updates automatically when the device connects or drops.
+
+Notes:
+- If connection is lost during operation, the GUI will trigger an 
+  emergency stop routine, save logs, and prompt you to reconnect.
+- Always disconnect before closing the GUI to ensure a clean shutdown.
+
+Note: If the system is unexpectedly disconnected, it may display CONNECTED even though it is disconnecting. In this case, pressing the disconnect button can force reconnection sometimes. 

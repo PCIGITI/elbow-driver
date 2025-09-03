@@ -1,0 +1,24 @@
+<CUMULATIVE_POSITION>
+This section shows the GUI’s running estimate of joint angles 
+(in degrees) for all axes:
+
+   Elbow Pitch (EP)
+   Elbow Yaw (EY)
+   Wrist Pitch (WP)
+   Left Jaw (LJ)
+   Right Jaw (RJ)
+
+How it updates:
+- Increases/decreases after DEGREE-based moves or ROS commands.
+- Step-mode jogs (raw motor steps) do NOT change these numbers.
+- Angles are initialized to 90.0° (neutral reference) on startup 
+  or reset.
+
+[RESET_POSITION]
+- Resets all displayed values back to 90.0°.
+- Do this after physically rehoming your motor. 
+
+Notes:
+- These are GUI-side values, not encoder feedback.
+- Signs and offsets follow the GUI’s sign convention settings.
+- Useful for tracking relative moves and sanity-checking ROS commands.

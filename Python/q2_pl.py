@@ -100,4 +100,4 @@ def sanity_check():
             # motor.value provides the integer index (e.g., 0)
             print(f"{motor.name}: {steps[motor.value]}")
 
-sanity_check()
+#sanity_check()

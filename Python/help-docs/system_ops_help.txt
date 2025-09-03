@@ -1,0 +1,11 @@
+This panel controls high-level system behaviors.
+
+VERBOSITY: OFF / ON
+Toggles detailed feedback from the Arduino. When ON, the Arduino will send more information about its state and actions to the OUTPUT_LOG. This is useful for debugging, and detrimental for real time control.
+
+MODE: JAWS / WRIST_YAW
+This toggle changes the function of the Q4 motors.
+
+In JAWS mode, the Q4L and Q4R controls open and close the left and right jaws independently.
+
+In WRIST_YAW mode, the Q4L and Q4R motors work together to produce a yawing motion of the wrist.

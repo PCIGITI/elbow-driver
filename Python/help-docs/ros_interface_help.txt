@@ -1,0 +1,35 @@
+<ROS_INTERFACE>
+
+Enable ROS-based control by subscribing to a JointState topic.
+
+ROS_MODE
+- Toggles the ROS controls (requires rospy installed).
+
+TOPIC
+- Enter the /sensor_msgs/JointState topic (e.g. /cccleft11/joint_states).
+- Click [SUBSCRIBE] to start/refresh the subscriber.
+
+FREQ (ms)
+- How often the GUI drains the incoming ROS queue.
+- Lower = more responsive updates (higher CPU).
+
+Status
+- Shows Ready/Subscribing/Inactive. Check the OUTPUT LOG to confirm
+  successful subscribe and data reception.
+
+How data is interpreted
+- Incoming radians are converted to degrees and shifted by +90° to match
+  the GUI frame; signs are applied per code (Q1 inverted, Q2/Q3 shifted,
+  jaws mirrored).
+- The GUI computes angle deltas from the current CUMULATIVE_POSITION and
+  executes a coordinated move.
+
+IMPORTANT
+- WARNING: BE SURE YOUR CUMULATIVE_POSITION TAB IS ACCURATE BEFORE
+  SUBSCRIBING VIA ROS!
+- Recommended: disable verbose output for faster real-time control.
+
+Notes
+- Expected joint names in incoming messages:
+  elbow_pitch, elbow_yaw, wrist_pitch, jaw_1
+- If topic/joint names don’t match, messages are ignored.

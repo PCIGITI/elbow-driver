@@ -1,0 +1,37 @@
+<MANUAL_JOINT_CONTROL>
+
+Use this panel to jog joints manually.
+
+Modes:
+- MODE: DEGREES
+  • Enter a degree delta in VALUE.
+  • [+]/[-] buttons move the selected joint by that amount.
+  • Updates the Cumulative Position display.
+- MODE: STEPS
+  • VALUE is motor steps (integer).
+  • [+]/[-] buttons send raw step counts.
+  • Does not update Cumulative Position.
+
+INDIVIDUAL_MOTOR_CTRL (STEPS only):
+- Off = coordinated joint motion (paired motors driven together).
+- On  = move a single motor channel at a time.
+
+Joints:
+- Q1 = Elbow Pitch
+- Q2 = Elbow Yaw
+- Q3 = Wrist Pitch
+- Q4L/Q4R = Left/Right Jaw
+  • In JAWS mode: jaws open/close.
+  • In WRIST_YAW mode: both jaws move together to yaw wrist.
+
+Notes:
+- Positive/negative direction follows Sign Conventions.
+- Use small increments to test motion safely.
+
+Sign convention is according to the physical robot:
+
+Q1+ South
+Q2+ East
+Q3+ South
+Q4+ Open
+

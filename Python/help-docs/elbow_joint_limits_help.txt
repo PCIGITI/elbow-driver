@@ -1,0 +1,39 @@
+<ELBOW_JOINT_LIMITS>
+
+This section controls the software limits for Theta1 (elbow pitch) 
+and Theta2 (elbow yaw). All values are raw Dynamixel ticks (0–4095), 
+not degrees.
+
+Two ways to set limits:
+
+1) Manual entry + [Send Vals]
+Use this routine if you already know what your values are, e.g. from previous testing. 
+   - Fill in Theta1 Min, Theta1 Max, Theta2 Min, Theta2 Max.
+   - Click [Send Vals] → sends:
+       UPDATE_LIMITS [t1_min,t1_max,t2_min,t2_max]
+   - Firmware parses exactly 4 integers. If valid, it updates the
+     global variables theta1_min/max and theta2_min/max and confirms.
+   - If malformed, it prints "Error: Malformed command" and does nothing.
+
+2) Interactive routine + [Find Vals]
+   - Click [Find Vals] → sends FIND_LIMITS to the board.
+   - Board walks you through each joint in 4 phases:
+       a) Theta1 Min: step by -100 until min, press [S] to step,
+          [L] to lock current position.
+       b) Theta1 Max: step by +100, [S] to step, [L] to lock.
+       c) Theta2 Min: step by -100, [S] to step, [L] to lock.
+       d) Theta2 Max: step by +50, [S] to step, [L] to lock.
+   - At the end it prints the final limits.
+   - Use these limits and complete the first routine. 
+
+On sending to the arduino, the limits are saved to a JSON file, so the existing values when you open the gui are the ones you last used.
+Buttons:
+   [Send Vals]  → push typed values directly.
+   [Find Vals]  → start interactive stepping routine.
+   [S]          → during Find routine, step motor by fixed increment.
+   [L]          → during Find routine, lock current pos as the limit.
+
+Notes:
+- Units are ticks (raw encoder counts).
+- Step carefully near hard stops to avoid damage.
+- Arduino defaults to no permissible movement so you will need to send values first. 
