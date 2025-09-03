@@ -1064,7 +1064,11 @@ class ElbowSimulatorGUI:
                     "RJ": latest_target_positions["Q4R"] - current_abs_positions["Q4R"],
                 }
                 # self.log_message(f"Calculated Deltas: {joint_degree_deltas}")
-                self._execute_degree_based_move(joint_degree_deltas)
+
+                MIN_DELTA_DEG = 1  # this prevents us from wasting arduino's brain over moves we can't make anyways
+                joint_degree_deltas = {k: v for k, v in joint_degree_deltas.items() if abs(v) >= MIN_DELTA_DEG}
+                if joint_degree_deltas:
+                    self._execute_degree_based_move(joint_degree_deltas)
             except Exception as e:
                 self.log_message(f"Error processing ROS queue: {e}", level="error")
         
