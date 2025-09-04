@@ -617,26 +617,38 @@ class ElbowSimulatorGUI:
             messagebox.showerror("Input Error", "Tension step size must be an integer.", parent=self.root)
             return
 
+        # This dictionary maps the motor ID from the GUI button to the
+        # commandIndex expected by the Arduino in the MOVE_ALL_MOTORS array.
+        motor_id_to_command_index = {
+            # GUI_ID: commandIndex
+            3: 6,
+            4: 7,
+            5: 5,
+            6: 2,
+            7: 4,
+            8: 3,
+        }
+
+        # Find the correct array index for the given motor ID
+        command_index = motor_id_to_command_index.get(motor_number)
+
+        if command_index is None:
+            self.log_message(f"Invalid motor ID {motor_number} for tensioning. No mapping found.", level="error")
+            return
+
         # Calculate final steps (direction is 1 for D, -1 for T)
         actual_steps = step_size * direction
         
         # Initialize a list of zeros for all motors
         motor_steps = [0] * len(MotorIndex)
 
-        # Set the steps for the target motor. Motor numbers are 1-based, list is 0-based.
-        # Motor 3 corresponds to index 2, Motor 8 to index 7.
-        motor_index = motor_number - 1
+        # Set the steps at the correct commandIndex
+        motor_steps[command_index] = actual_steps
         
-        if 0 <= motor_index < len(motor_steps):
-            motor_steps[motor_index] = actual_steps
-        else:
-            self.log_message(f"Invalid motor number {motor_number} for tensioning.", level="error")
-            return
-
         # Format and send command
         steps_str = ",".join(map(str, motor_steps))
         cmd = f"MOVE_ALL_MOTORS:{steps_str}"
-        self.log_message(f"Tension Motor {motor_number}: {actual_steps} steps. Cmd: {cmd}", level="sent")
+        self.log_message(f"Tension Motor ID {motor_number}: {actual_steps} steps. Cmd: {cmd}", level="sent")
         self.serial_handler.send_command(cmd)
 
     def _create_positional_control_frame_widgets(self, parent_frame): #
